@@ -1,0 +1,11 @@
+{
+  "path": "/path/to/path",
+  "provider": "javbus",
+  "apply": false,
+  "concurrency": 4,
+  "proxy": {
+    "url": "http://127.0.0.1:8080"
+  },
+  "image_proxy": false,
+  "exclude_dirs": ["temp", "downloads"]
+}

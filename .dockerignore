@@ -1,0 +1,17 @@
+.git
+.dist
+/dist
+/out
+/cache
+/test/out
+/test/cache
+/verify/out
+/verify/cache
+
+# 开发/构建产物
+*.exe
+*.test
+*.prof
+
+# IDE
+.DS_Store

@@ -72,6 +72,35 @@ func TestFetchParse_FallbackOnFetchFail(t *testing.T) {
 	}
 }
 
+func TestFetchParseTrace_RecordsFallbackReason(t *testing.T) {
+	code, _ := domain.ParseCode("CAWD-895")
+
+	javbus := &stubProvider{name: "javbus", fetchErr: errors.New("nope")}
+	javdb := &stubProvider{name: "javdb", html: []byte("<html/>"), url: "https://example.test/javdb/1", meta: domain.MovieMeta{Title: "t"}}
+
+	reg, err := NewRegistry(javbus, javdb)
+	if err != nil {
+		t.Fatalf("不期望错误：%v", err)
+	}
+
+	_, used, _, _, attempts, err := FetchParseTrace(context.Background(), reg, "javbus", code, nil)
+	if err != nil {
+		t.Fatalf("不期望错误：%v", err)
+	}
+	if used != "javdb" {
+		t.Fatalf("期望 used=javdb，实际=%q", used)
+	}
+	if len(attempts) != 2 {
+		t.Fatalf("期望 2 条 attempts，实际 %d: %+v", len(attempts), attempts)
+	}
+	if attempts[0].Provider != "javbus" || attempts[0].Stage != "fetch" || attempts[0].Err == nil {
+		t.Fatalf("attempt[0] 不符合预期：%+v", attempts[0])
+	}
+	if attempts[1].Provider != "javdb" || attempts[1].Stage != "ok" || attempts[1].Err != nil {
+		t.Fatalf("attempt[1] 不符合预期：%+v", attempts[1])
+	}
+}
+
 func TestFetchParse_FallbackOnParseFail(t *testing.T) {
 	code, _ := domain.ParseCode("CAWD-895")
 

@@ -62,6 +62,10 @@
 - `provider_requested`：来自 CLI/config 的首选 provider（unmatched/config 可为空字符串）。
 - `provider_used`：最终成功使用的 provider；若未发生抓取/解析（例如 unmatched/config）则为空字符串。
 - `website`：成功解析时必须填最终 provider 的详情页 URL；否则为空字符串。
+- `attempts`（新增，可选但建议保留）：
+  - provider 尝试链路，用于解释“为何发生降级/回退”
+  - 每条包含：`provider`、`stage(fetch|parse|ok)`、失败时的 `error_code/error_msg`
+  - 顺序必须与实际尝试顺序一致；成功条目通常以最后一条 `stage=="ok"` 结束
 - `candidates`：仅在 `unmatched_code(ambiguous)` 时填候选 CODE 列表；其它情况为空数组或省略（建议保留为空数组，方便机器处理）。
 
 ### 3.1 unmatched 条目（必须形态）

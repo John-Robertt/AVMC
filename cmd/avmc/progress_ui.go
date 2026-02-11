@@ -164,10 +164,19 @@ func (p *progressUI) OnItemDone(idx, total int, code domain.Code, res domain.Ite
 
 	moveCount := len(res.Files)
 
+	fallbackNote := ""
+	if res.Status == domain.StatusProcessed {
+		fallbackNote = formatFallbackNote(res)
+	}
+
 	switch res.Status {
 	case domain.StatusFailed:
-		fmt.Fprintf(p.w, "[%d/%d] %s %s %s: %s (%s)\n",
-			idx, total, code, status, res.ErrorCode, truncate(res.ErrorMsg, 160), formatShortDuration(dur),
+		chain := formatAttemptChain(res.Attempts, 1)
+		if chain != "" {
+			chain = " attempts=" + chain
+		}
+		fmt.Fprintf(p.w, "[%d/%d] %s %s %s: %s%s (%s)\n",
+			idx, total, code, status, res.ErrorCode, truncate(res.ErrorMsg, 160), chain, formatShortDuration(dur),
 		)
 	case domain.StatusSkipped:
 		fmt.Fprintf(p.w, "[%d/%d] %s %s (已完整，无需刮削/移动) (%s)\n",
@@ -175,8 +184,8 @@ func (p *progressUI) OnItemDone(idx, total int, code domain.Code, res domain.Ite
 		)
 	default:
 		if prov != "" {
-			fmt.Fprintf(p.w, "[%d/%d] %s %s provider=%s move=%d (%s)\n",
-				idx, total, code, status, prov, moveCount, formatShortDuration(dur),
+			fmt.Fprintf(p.w, "[%d/%d] %s %s provider=%s move=%d%s (%s)\n",
+				idx, total, code, status, prov, moveCount, fallbackNote, formatShortDuration(dur),
 			)
 		} else {
 			fmt.Fprintf(p.w, "[%d/%d] %s %s move=%d (%s)\n",
@@ -304,6 +313,59 @@ func truncate(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+func formatFallbackNote(res domain.ItemResult) string {
+	req := strings.ToLower(strings.TrimSpace(res.ProviderRequested))
+	used := strings.ToLower(strings.TrimSpace(res.ProviderUsed))
+	if req == "" || used == "" || req == used {
+		return ""
+	}
+	// 只展示“requested provider”为何失败（否则会变成噪音）。
+	for _, a := range res.Attempts {
+		if strings.ToLower(strings.TrimSpace(a.Provider)) != req {
+			continue
+		}
+		if strings.TrimSpace(a.ErrorCode) == "" {
+			continue
+		}
+		msg := strings.TrimSpace(a.ErrorMsg)
+		if msg == "" {
+			msg = a.ErrorCode
+		} else {
+			msg = a.ErrorCode + ": " + msg
+		}
+		return " fallback(" + req + " " + truncate(msg, 90) + ")"
+	}
+	return " fallback(" + req + ")"
+}
+
+func formatAttemptChain(attempts []domain.ProviderAttempt, max int) string {
+	if len(attempts) == 0 || max == 0 {
+		return ""
+	}
+	if max < 0 {
+		max = len(attempts)
+	}
+	parts := make([]string, 0, len(attempts))
+	for _, a := range attempts {
+		p := strings.TrimSpace(a.Provider)
+		st := strings.TrimSpace(a.Stage)
+		ec := strings.TrimSpace(a.ErrorCode)
+		em := strings.TrimSpace(a.ErrorMsg)
+		s := p + ":" + st
+		if ec != "" {
+			s += ":" + ec
+		}
+		if em != "" {
+			s += ":" + truncate(em, 80)
+		}
+		parts = append(parts, s)
+		if len(parts) >= max {
+			break
+		}
+	}
+	return strings.Join(parts, ";")
 }
 
 func formatShortDuration(d time.Duration) string {

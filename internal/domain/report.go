@@ -61,8 +61,28 @@ type ItemResult struct {
 	ErrorCode string `json:"error_code"`
 	ErrorMsg  string `json:"error_msg"`
 
+	// Attempts 记录 provider 的尝试链路（用于解释“为何发生降级/回退”）。
+	// - ok：表示该 provider 最终成功
+	// - fetch / parse：表示该 provider 在对应阶段失败
+	//
+	// 约束：
+	// - 顺序必须与实际尝试顺序一致
+	// - 成功条目通常以最后一个 {stage:"ok"} 结束
+	Attempts []ProviderAttempt `json:"attempts"`
+
 	Candidates []string     `json:"candidates"`
 	Files      []FileResult `json:"files"`
+}
+
+// ProviderAttempt 表达一次 provider 尝试的结果。
+// 该结构是 RunReport 的一部分（可机器处理），用于解释 fallback/降级原因。
+type ProviderAttempt struct {
+	Provider string `json:"provider"` // e.g. "javdb" / "javbus"
+	Stage    string `json:"stage"`    // "fetch" / "parse" / "ok"
+
+	// ErrorCode/ErrorMsg 仅在失败时填；成功（stage=="ok"）时为空串。
+	ErrorCode string `json:"error_code"` // fetch_failed / parse_failed
+	ErrorMsg  string `json:"error_msg"`
 }
 
 type FileResult struct {

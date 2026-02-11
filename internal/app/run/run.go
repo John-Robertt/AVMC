@@ -228,6 +228,7 @@ func unmatchedItem(u domain.Unmatched) domain.ItemResult {
 		Status:            domain.StatusUnmatched,
 		ErrorCode:         domain.ErrCodeUnmatchedCode,
 		Candidates:        []string{},
+		Attempts:          []domain.ProviderAttempt{},
 		Files: []domain.FileResult{{
 			Src:    u.File.RelPath,
 			Dst:    "",
@@ -256,6 +257,7 @@ func failedPlanItem(providerRequested string, it domain.WorkItem, files []domain
 		ErrorCode:         code,
 		ErrorMsg:          msg,
 		Candidates:        []string{},
+		Attempts:          []domain.ProviderAttempt{},
 		Files:             make([]domain.FileResult, 0, len(it.FileIdx)),
 	}
 	for _, idx := range it.FileIdx {
@@ -281,6 +283,7 @@ func syntheticFailed(code, msg string) domain.ItemResult {
 		ErrorCode:         code,
 		ErrorMsg:          msg,
 		Candidates:        []string{},
+		Attempts:          []domain.ProviderAttempt{},
 		Files:             []domain.FileResult{},
 	}
 }
@@ -295,6 +298,7 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 		ErrorCode:         "",
 		ErrorMsg:          "",
 		Candidates:        []string{},
+		Attempts:          []domain.ProviderAttempt{},
 		Files:             buildFileResults(eff, p, absToRel),
 	}
 
@@ -307,9 +311,10 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 	// dry-run：只做 fetch+parse 验证；不落盘、不下载图片、不移动。
 	if !eff.Apply {
 		if p.Need.NeedScrape {
-			meta, used, website, html, err := scrape(ctx, store, reg, p.ProviderRequested, p.Code, metaClient, false)
+			meta, used, website, html, attempts, err := scrape(ctx, store, reg, p.ProviderRequested, p.Code, metaClient, false)
 			_ = meta
 			_ = html
+			item.Attempts = attempts
 			if err != nil {
 				fillProviderError(&item, err)
 				return item
@@ -325,7 +330,8 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 	var used, website string
 	var html []byte
 	if p.Need.NeedScrape {
-		m, u, w, h, err := scrape(ctx, store, reg, p.ProviderRequested, p.Code, metaClient, true)
+		m, u, w, h, attempts, err := scrape(ctx, store, reg, p.ProviderRequested, p.Code, metaClient, true)
+		item.Attempts = attempts
 		if err != nil {
 			fillProviderError(&item, err)
 			// sidecar 未满足：禁止移动视频（文件状态保持 failed）
@@ -590,19 +596,24 @@ func isJavbusURL(raw string) bool {
 	return host == "javbus.com" || strings.HasSuffix(host, ".javbus.com")
 }
 
-func scrape(ctx context.Context, store cache.Store, reg provider.Registry, providerRequested string, code domain.Code, c *http.Client, allowWrite bool) (domain.MovieMeta, string, string, []byte, error) {
+func scrape(ctx context.Context, store cache.Store, reg provider.Registry, providerRequested string, code domain.Code, c *http.Client, allowWrite bool) (domain.MovieMeta, string, string, []byte, []domain.ProviderAttempt, error) {
 	// 先尝试 cache（只读），命中则不再打网络。
 	if b, ok, err := store.ReadProviderJSON(providerRequested, code); err == nil && ok {
 		var meta domain.MovieMeta
 		if e := json.Unmarshal(b, &meta); e == nil {
-			return meta, providerRequested, meta.Website, nil, nil
+			return meta, providerRequested, meta.Website, nil, []domain.ProviderAttempt{{
+				Provider:  providerRequested,
+				Stage:     "ok",
+				ErrorCode: "",
+				ErrorMsg:  "",
+			}}, nil
 		}
 		// 坏缓存：忽略，走网络（apply 会写回新缓存；dry-run 只验证）。
 	}
 
-	meta, used, website, html, err := provider.FetchParse(ctx, reg, providerRequested, code, c)
+	meta, used, website, html, trace, err := provider.FetchParseTrace(ctx, reg, providerRequested, code, c)
 	if err != nil {
-		return domain.MovieMeta{}, "", "", nil, err
+		return domain.MovieMeta{}, "", "", nil, attemptsFromTrace(trace), err
 	}
 
 	// apply：写缓存（HTML + JSON）。dry-run 禁止写入。
@@ -612,7 +623,53 @@ func scrape(ctx context.Context, store cache.Store, reg provider.Registry, provi
 			_ = store.WriteProviderJSON(used, code, b)
 		}
 	}
-	return meta, used, website, html, nil
+	return meta, used, website, html, attemptsFromTrace(trace), nil
+}
+
+func attemptsFromTrace(trace []provider.Attempt) []domain.ProviderAttempt {
+	if len(trace) == 0 {
+		return []domain.ProviderAttempt{}
+	}
+	out := make([]domain.ProviderAttempt, 0, len(trace))
+	for _, a := range trace {
+		at := domain.ProviderAttempt{
+			Provider:  a.Provider,
+			Stage:     a.Stage,
+			ErrorCode: "",
+			ErrorMsg:  "",
+		}
+		switch a.Stage {
+		case "fetch":
+			at.ErrorCode = domain.ErrCodeFetchFailed
+			at.ErrorMsg = stripProviderPrefix(a.Provider, humanizeFetchError(a.Provider, a.Err))
+		case "parse":
+			at.ErrorCode = domain.ErrCodeParseFailed
+			at.ErrorMsg = stripProviderPrefix(a.Provider, humanizeParseError(a.Provider, a.Err))
+		case "ok":
+			// ok
+		default:
+			// 兜底：未知阶段也保留错误信息，避免“无痕失败”。
+			if a.Err != nil {
+				at.ErrorCode = domain.ErrCodeFetchFailed
+				at.ErrorMsg = a.Err.Error()
+			}
+		}
+		out = append(out, at)
+	}
+	return out
+}
+
+func stripProviderPrefix(providerName, msg string) string {
+	msg = strings.TrimSpace(msg)
+	p := strings.TrimSpace(providerName)
+	if p == "" || msg == "" {
+		return msg
+	}
+	prefix := p + " "
+	if strings.HasPrefix(msg, prefix) {
+		return strings.TrimSpace(strings.TrimPrefix(msg, prefix))
+	}
+	return msg
 }
 
 func fillProviderError(item *domain.ItemResult, err error) {

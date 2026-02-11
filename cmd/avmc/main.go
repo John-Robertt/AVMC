@@ -245,6 +245,7 @@ func reportForConfigError(cwdAbs string, ra runArgs, err error) domain.RunReport
 			ErrorCode:         config.Code(err),
 			ErrorMsg:          err.Error(),
 			Candidates:        []string{},
+			Attempts:          []domain.ProviderAttempt{},
 			Files:             []domain.FileResult{},
 		}},
 	}

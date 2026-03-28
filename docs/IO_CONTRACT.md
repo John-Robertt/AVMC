@@ -11,10 +11,10 @@
 对每个 `CODE`：
 ```
 <path>/out/<CODE>/
+  <video files...>          # 可多个，默认保留原文件名
   <CODE>.nfo
   poster.jpg
   fanart.jpg
-  <video files...>          # 可多个，默认保留原文件名
 ```
 
 图片规则：

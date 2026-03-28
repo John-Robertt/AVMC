@@ -43,3 +43,21 @@
 - ARCHITECTURE / DATA_MODEL / ALGORITHMS：描述实现必须遵守的结构与流程；变更要同步测试用例。
 - PROVIDERS：只写 provider 接口与解析规范；HTML 字段变化用 fixture/golden 测试锁住。
 - DEVELOPMENT_PLAN：按阶段产出与验证命令维护；每完成一个阶段就更新状态与下一步。
+
+---
+
+## 权威源索引（每条规则只在一个文档中定义）
+
+| 主题 | 权威文档 | 其他文档引用 |
+|---|---|---|
+| out/cache 固定排除 | [CONFIG.md](./CONFIG.md) §3.2 | PRD、ALGORITHMS、DATA_MODEL、TESTING |
+| provider 自动降级策略 | [PROVIDERS.md](./PROVIDERS.md) §2 | PRD、CLI、DATA_MODEL、DEVELOPMENT_PLAN |
+| 输出目录布局 | [IO_CONTRACT.md](./IO_CONTRACT.md) §1 | PRD |
+| CLI 参数与用法 | [CLI.md](./CLI.md) | PRD、CONFIG |
+| 错误码枚举与含义 | [REPORT.md](./REPORT.md) §6 | PRD |
+| move-last / 原子写 / 不覆盖 | [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4 | PRD、DATA_MODEL |
+| 配置发现规则与字段语义 | [CONFIG.md](./CONFIG.md) §1-3 | CLI、PRD |
+| 数据结构与不变量 | [DATA_MODEL.md](./DATA_MODEL.md) | ARCHITECTURE、ALGORITHMS |
+| 测试策略与 golden 更新 | [TESTING.md](./TESTING.md) | PROVIDERS |
+
+**原则**：修改规则时只改权威文档；其他文档如有引用需同步，但不重复内容。引用方式：`见 <doc>.md §<section>`。

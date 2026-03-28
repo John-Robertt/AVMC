@@ -103,7 +103,7 @@
 
 **验证**
 - `go test ./...`：fixture/golden 全通过
-- 单测：requested 失败后 fallback 成功，report 标注 provider_used
+- 单测：requested 失败后 fallback 成功，report 标注 provider_used（降级策略见 [PROVIDERS.md](./PROVIDERS.md) §2）
 
 ## Phase 9：NFO 生成（稳定结构）
 **产出**
@@ -152,9 +152,9 @@
 ---
 
 ## 最终验收清单（必须全部通过）
-1) 扫描排除：out/cache 永久排除；exclude_dirs 生效
+1) 扫描排除：见 [CONFIG.md](./CONFIG.md) §3.2；exclude_dirs 生效
 2) 多版本：同 CODE 多文件只刮削一次并全部归档
-3) provider 自动降级：失败切换且可追溯（provider_requested/provider_used）
+3) provider 自动降级：见 [PROVIDERS.md](./PROVIDERS.md) §2
 4) 图片代理开关：image_proxy=false 直连；true 走代理
-5) 可恢复性：移动最后、原子写、不覆盖、EXDEV 失败不丢数据、幂等可重跑
+5) 可恢复性：见 [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4
 6) dry-run 零写入：不生成 out/cache/report；stdout 非 TTY 时 stdout 仅输出 JSON

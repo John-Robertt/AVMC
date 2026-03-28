@@ -72,11 +72,7 @@
 avmc run [path] [--provider javbus|javdb] [--apply[=true|false]]
 ```
 
-- `path`：扫描根目录（可省略；用于配置文件“一键运行”）
-- `--provider`：刮削来源（仅允许 `javbus`/`javdb`）；默认 `javbus`
-- `--apply`：真正写入与移动文件；默认 dry-run（做可用性验证 + 展示计划，不改动文件系统）。支持 `--apply=false` 覆盖配置文件中的 `apply=true`
-
-> 说明：为了避免“参数爆炸”，CLI 仅暴露 `path/provider/apply` 三个入口；不提供 `--out`。输出固定写入 `<path>/out/`。
+参数语义、用法示例、输出契约详见 [CLI.md](./CLI.md)。配置文件字段与覆盖优先级详见 [CONFIG.md](./CONFIG.md)。
 
 ### 5.2 例子
 - 预演（不改动）：  
@@ -99,40 +95,28 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 - 退出码：`failed==0` 且 `unmatched==0` => exit `0`；否则 exit `1`。
 
 ### 5.5 可选配置文件（不增加 CLI 参数）
-为了在不增加命令行参数的前提下兼顾“可用性”（站点限制/网络环境差异），工具支持 `avmc.json` 配置文件，用于控制并发/代理/排除目录/图片代理等高级行为，并支持“一键运行”。
+为了在不增加命令行参数的前提下兼顾”可用性”（站点限制/网络环境差异），工具支持 `avmc.json` 配置文件，用于控制并发/代理/排除目录/图片代理等高级行为，并支持”一键运行”。
 
-#### 配置文件发现规则（固定、可预测）
-- 若 CLI 提供 `path`：尝试读取 `<path>/avmc.json`（可选）
-- 若 CLI 未提供 `path`：必须读取 `./avmc.json`（必选），并要求其中包含 `path`
-
-#### 覆盖优先级（固定）
-- `path`：CLI `path` > config `path`
-- `provider`：CLI `--provider` > config `provider` > 默认 `javbus`
-- `apply`：CLI `--apply/--apply=false` > config `apply` > 默认 `false`
-- 其余字段：仅由 config 控制（CLI 不暴露）
+配置文件发现规则、覆盖优先级、完整字段语义见 [CONFIG.md](./CONFIG.md)。
 
 最小配置（v2）：
 ```json
 {
-  "path": "/path/to/path",
-  "provider": "javbus",
-  "apply": false,
-
-  "concurrency": 4,
-  "proxy": {
-    "url": "http://127.0.0.1:8080"
-  },
-  "image_proxy": false,
-  "exclude_dirs": ["temp", "downloads"]
+  “path”: “/path/to/path”,
+  “provider”: “javbus”,
+  “apply”: false,
+  “concurrency”: 4,
+  “proxy”: { “url”: “http://127.0.0.1:8080” },
+  “image_proxy”: false,
+  “exclude_dirs”: [“temp”, “downloads”]
 }
 ```
 
-- `path/provider/apply`：用于“一键运行”，且允许被 CLI 覆盖。
+- `path/provider/apply`：用于”一键运行”，且允许被 CLI 覆盖。
 - `concurrency`：并发 worker 数；缺省时使用内置默认值。
 - `proxy.url`：HTTP 代理入口（后端可为代理池）；缺省则直连。
 - `image_proxy`：图片是否通过 `proxy.url` 下载；默认 `false`（不使用代理下载图片）。当 `image_proxy=true` 时要求 `proxy.url` 非空，否则视为配置错误。
 - `exclude_dirs`：排除目录列表（相对 `path` 的路径，可多个）。
-- 工具生成目录自动排除：无论配置如何，`out/` 与 `cache/` 永远会被排除扫描（无需在 `exclude_dirs` 重复配置）。
 - UA 池：大量内置于工具内，按请求随机选择，不对外暴露配置。
 
 ---
@@ -143,22 +127,13 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 - 固定为：`<path>/out/`
 
 ### 6.2 目录结构
-对每个作品 `<CODE>`：
-```
-<path>/out/<CODE>/
-  <video files...>
-  <CODE>.nfo
-  poster.jpg
-  fanart.jpg
-```
+目录布局、原子写、不覆盖、move 语义等硬规则见 [IO_CONTRACT.md](./IO_CONTRACT.md) §1。
 
 ### 6.3 必须的规则
-- 扫描时必须排除 `<path>/out/` 与 `<path>/cache/`，防止“扫到自己生成的新库/缓存”导致循环处理。
-- 配置排除：若 `exclude_dirs` 指定了目录，则一并排除这些路径（相对 `path`）。
+- 扫描排除规则见 [CONFIG.md](./CONFIG.md) §3。
 - `--apply` 时对视频文件执行**移动**（优先同盘 `rename`），移动到 `out/<CODE>/`，默认**不改名**。
 - 多版本：同一 `CODE` 下允许存在多个视频文件；元数据只刮削一次，侧车文件仅生成一份。
 - 视频同名去冲突：若目标目录已存在同名视频文件，则按确定性规则自动改名（例如追加 `__2`、`__3`），并在报告中记录映射。
-- 侧车不覆盖：若目标已存在 `<CODE>.nfo` / `poster.jpg` / `fanart.jpg`，则跳过写入（不覆盖）；只有路径冲突或写入失败才算失败。
 - 幂等：再次运行时，若输出完整则跳过；不完整则只补齐缺失文件（例如缺图补图）。
 
 ---
@@ -172,8 +147,8 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 ### 7.2 Provider 行为约束
 - 输入：规范化后的 `CODE`（例如 `CAWD-895`）
 - 输出：结构化元数据 `MovieMeta` + 海报/背景图 URL（或下载结果）
-- 统一的限速与缓存策略由核心实现（provider 只负责“如何定位页面 + 解析 HTML”）
-- 可用性策略：优先使用 `--provider` 指定的来源；若抓取/解析失败，将自动切换到另一个 provider 重试，并在 NFO 与报告中标注最终使用的来源。
+- 统一的限速与缓存策略由核心实现（provider 只负责”如何定位页面 + 解析 HTML”）
+- 自动降级策略与 report 标记要求见 [PROVIDERS.md](./PROVIDERS.md) §2。
 
 ### 7.3 NFO 中标记来源（provider 作为来源标记）
 - `<website>`：写入对应站点的详情页 URL（天然标记来源）
@@ -219,12 +194,7 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 失败时的底线原则：**不移动视频，不写半成品**（或至少不让半成品覆盖已有结果）。
 
 ### 9.1 常见失败类型
-- `unmatched_code`：无法从文件名/目录名解析出 CODE
-- `fetch_failed`：网络/站点不可达/被阻断
-- `parse_failed`：HTML 结构变化导致解析失败
-- `target_conflict`：目标路径类型冲突（例如 `out/<CODE>` 不是目录、sidecar 目标路径被目录占用等）
-- `io_failed`：通用 IO 失败（权限/磁盘/创建目录/原子写/缓存读写等）
-- `move_failed`：移动/重命名失败（权限/跨盘/目标异常等）
+错误码完整枚举与含义见 [REPORT.md](./REPORT.md) §6。
 
 ### 9.2 运行报告（必有）
 - apply：固定写入 `<path>/cache/report.json`；stdout 非 TTY 时也输出同结构 JSON。
@@ -234,11 +204,9 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
   - 每条的：源路径、解析出的 CODE、`provider_requested`/`provider_used`、（apply 时）移动后的目标路径映射、错误码、简短错误信息
 
 ### 9.3 可恢复性硬规则（必须满足）
-1) 移动视频永远是最后一步：刮削/解析/侧车任一步失败，都不得移动视频文件。  
-2) 侧车写入原子化：写入采用临时文件 + `rename`；且遵守“不覆盖”。  
-3) 同盘优先：默认仅做同盘 `rename`；跨盘（如 EXDEV）视为失败并给出可操作提示，不做隐式 copy+delete。  
-4) 单条失败不影响其他：一个 `CODE` 失败不阻断其他条目处理；但只要 `failed>0` 或 `unmatched>0`，整体 exit code 必须为 1。  
-5) 幂等可重跑：已完整条目跳过；不完整只补齐缺失；同 `CODE` 新增视频文件只做归档，不重复刮削。  
+1) 移动视频永远是最后一步；侧车写入原子化且不覆盖；同盘优先——详见 [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4。
+2) 单条失败不影响其他：一个 `CODE` 失败不阻断其他条目处理；但只要 `failed>0` 或 `unmatched>0`，整体 exit code 必须为 1。
+3) 幂等可重跑：已完整条目跳过；不完整只补齐缺失；同 `CODE` 新增视频文件只做归档，不重复刮削。
 
 ---
 
@@ -248,7 +216,7 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 1) 默认可运行：无 `avmc.json` 也能以直连方式运行（不强依赖代理）。  
 2) 代理池模式正确生效：配置 `proxy.url` 后，provider 的页面抓取请求必须走该 HTTP 代理入口，且**每个请求新建连接**（不复用 Keep-Alive）。图片下载是否走代理由 `image_proxy` 决定。  
 3) 内置 UA 池：每个请求随机选择 UA，不需要用户维护。  
-4) provider 自动降级：首选来源失败后，自动切换另一个 provider 尝试，并标注最终来源。  
+4) provider 自动降级：见 [PROVIDERS.md](./PROVIDERS.md) §2。
 5) 有界重试与超时：网络请求必须有超时与有限重试；达到上限后以 `fetch_failed/parse_failed` 明确失败。  
 6) 图片代理可控：默认图片直连下载；当 `image_proxy=true` 时，图片下载走 `proxy.url`。  
 
@@ -256,7 +224,7 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 为了让工具“无感”但不打爆站点：
 - 内置并发（默认例如 4 worker，可由配置文件 `avmc.json` 覆盖）与 provider 级限速（例如 1 rps）
 - UA 池内置：每个请求随机选择 UA，降低重复特征
-- 代理池支持：当配置 `proxy.url` 时，provider 的页面抓取请求通过该 HTTP 代理入口；**每个请求必须新建连接，不复用 Keep-Alive**，以触发代理池轮换能力（图片下载是否走代理由 `image_proxy` 决定）
+- 代理池支持：当配置 `proxy.url` 时，provider 的页面抓取请求通过该 HTTP 代理入口；**每个请求必须新建连接，不复用 Keep-Alive**，以触发代理池轮换能力（图片下载是否走代理由 `image_proxy` 决定；详见 [PROVIDERS.md](./PROVIDERS.md) §4）
 - 内置缓存目录：`<path>/cache/`
   - 按 `provider+CODE` 缓存原始 HTML 与解析结果（图片下载结果可选缓存，不作为对外契约）
 - 二次运行优先走缓存与本地已有文件，减少重复请求
@@ -295,8 +263,8 @@ docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provide
 - apply：生成目录结构与文件齐全，视频被移动到 `out/<CODE>/`
 - 幂等：二次运行应跳过已完整条目
 - 多版本：同一 `CODE` 多个视频文件，只刮削一次并全部移动到 `out/<CODE>/`（侧车只生成一份）
-- provider 降级：模拟首选 provider 失败，自动切换并成功写入（NFO/报告标注最终来源）
-- exclude_dirs：配置的排除目录不被扫描；且 `out/` 与 `cache/` 永远自动排除
+- provider 降级：见 [PROVIDERS.md](./PROVIDERS.md) §2
+- exclude_dirs：配置的排除目录不被扫描；固定排除规则见 [CONFIG.md](./CONFIG.md) §3.2
 - image_proxy：`image_proxy=false` 时图片直连下载；`image_proxy=true` 时图片下载走 `proxy.url`
 - 一键运行：`avmc run` 在 cwd 存在 `./avmc.json` 且包含 `path/provider/apply` 时可直接运行；CLI `path/--provider/--apply` 可覆盖配置
 

@@ -33,14 +33,14 @@
 
 ## 三分钟上手（推荐流程）
 
-1) 准备一个目录（下文用 `/data/videos` 举例），把视频放进去（支持：`.mp4/.mkv/.avi`）。
-2) 先 dry-run 预演（默认不改动文件），并把 JSON 报告导出到文件方便查看：
+1. 准备一个目录（下文用 `/data/videos` 举例），把视频放进去（支持：`.mp4/.mkv/.avi`）。
+2. 先 dry-run 预演（默认不改动文件），并把 JSON 报告导出到文件方便查看：
 
 ```bash
 ./avmc run /data/videos > dryrun.report.json
 ```
 
-3) 确认无 `failed/unmatched` 后，再执行 apply（会写入 `out/`/`cache/` 并移动视频）：
+3. 确认无 `failed/unmatched` 后，再执行 apply（会写入 `out/`/`cache/` 并移动视频）：
 
 ```bash
 ./avmc run /data/videos --apply
@@ -59,6 +59,7 @@ avmc run [path] [--provider javbus|javdb] [--apply[=true|false]]
 - `--apply`：真正写入与移动；默认 dry-run；支持 `--apply=false` 临时覆盖配置
 
 退出码（便于脚本化）：
+
 - `failed==0` 且 `unmatched==0` => exit `0`
 - 否则 exit `1`
 
@@ -94,6 +95,7 @@ AVMC 会从「文件名」和「父目录名」里提取唯一 `CODE`：
 - 例子（都能识别）：`CAWD-895`、`cawd_895`、`cawd 895`、`CAWD.895`
 
 常见导致 `unmatched` 的原因：
+
 - 文件名里完全没有番号片段（例如只叫 `movie.mp4`）
 - 同一个文件名/目录名里出现了多个不同号码片段（ambiguous）
 
@@ -164,6 +166,7 @@ go build -o avmc ./cmd/avmc
 ## 更详细的文档
 
 如果你要深入了解“配置覆盖规则 / 报告 JSON 结构 / 文件系统契约 / provider 行为”，建议从这里开始：
+
 - `docs/README.md`（文档索引）
 - `docs/CLI.md`（命令行细节）
 - `docs/CONFIG.md`（avmc.json）

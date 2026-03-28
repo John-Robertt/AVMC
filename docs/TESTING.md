@@ -13,7 +13,7 @@
 - no_match：必须失败并给出原因
 
 ### 1.2 exclude 语义
-- 永久排除：`out/`、`cache/`
+- 固定排除 + 配置排除规则见 [CONFIG.md](./CONFIG.md) §3
 - `exclude_dirs`：相对 `path` 的路径匹配（整棵排除）
 
 ### 1.3 同名去冲突（确定性）

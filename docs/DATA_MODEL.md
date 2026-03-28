@@ -129,14 +129,13 @@ type MovieMeta struct {
 
 ### 5.1 RunReport / ItemResult（建议结构，见 REPORT.md）
 要点：
-- `provider_requested` 与 `provider_used` 必须同时记录（自动降级可追溯）。
+- `provider_requested` 与 `provider_used` 必须同时记录（自动降级策略见 [PROVIDERS.md](./PROVIDERS.md) §2）。
 - 每个输入文件需要记录 `src -> dst` 映射（含同名去冲突结果）。
 - 状态必须可枚举：`processed/skipped/failed/unmatched`。
 
 ---
 
 ## 6. 全局不变量（硬规则）
-1) **移动最后一步**：任何失败不得移动视频文件。
-2) **sidecar 原子写 + 不覆盖**：只能补齐缺失，不能覆盖已有。
-3) **扫描排除固定**：`out/`、`cache/` 永远排除；`exclude_dirs` 额外排除。
-4) **幂等**：重复运行不会破坏已完成输出；不完整仅补齐缺失。
+1) **移动最后一步** / **sidecar 原子写 + 不覆盖**：见 [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4。
+2) **扫描排除固定**：见 [CONFIG.md](./CONFIG.md) §3.2。
+3) **幂等**：重复运行不会破坏已完成输出；不完整仅补齐缺失。

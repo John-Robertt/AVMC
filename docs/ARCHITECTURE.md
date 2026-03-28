@@ -84,7 +84,7 @@ app 层不应因为新增 provider 而变复杂。
 - `OutState.ExistingNames` 用 map 做 O(1) 冲突判定；规模只在单个 out 目录内，足够小。
 
 ### 4.3 可恢复性优先
-任何“优化”都不得破坏：
+任何”优化”都不得破坏（完整规则见 [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4）：
 - move 最后一步
 - 原子写入 + 不覆盖
 - 幂等可重跑

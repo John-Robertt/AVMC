@@ -22,8 +22,7 @@
    - `apply`：CLI `--apply/--apply=false` > config > 默认 `false`
    - 其他字段：仅 config 控制
 4) 计算排除目录：
-   - 永久排除：`<path>/out/`、`<path>/cache/`
-   - 配置排除：`exclude_dirs`（相对 path）
+   - 固定排除 + 配置排除规则见 [CONFIG.md](./CONFIG.md) §3
 
 验证点：
 - `avmc run`（无参）在 cwd 有 `avmc.json` 且含 `path` 时可以运行

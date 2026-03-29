@@ -4,7 +4,7 @@
 
 ## 1. 输出位置与输出通道（对外契约）
 - apply：**必须**写入 `<path>/cache/report.json`
-- dry-run：**不得落盘**（不写 `<path>/cache/report.json`）
+- dry-run：通过 stdout 输出同结构 `RunReport`
 - 当 stdout 非 TTY 时：stdout **必须且仅**输出一个 `RunReport` JSON（dry-run/apply 同结构）
 
 > stdout/stderr 的分工见 [CLI.md](./CLI.md)。
@@ -28,6 +28,8 @@
 
 约束（必须满足）：
 - `path` 必须是绝对路径。
+  - 配置成功时，`path` 是扫描根目录。
+  - 配置错误条目场景下，当前实现使用当前工作目录作为 `path`。
 - `started_at`/`finished_at` 必须是 RFC3339（UTC，后缀 `Z`）。
 - `summary.processed + summary.skipped + summary.failed + summary.unmatched == len(items)`。
 - `items` 必须稳定排序：按 `code` 字典序；`code==""`（unmatched/config 等）排在最后。
@@ -44,6 +46,20 @@
   "status": "processed",
   "error_code": "",
   "error_msg": "",
+  "attempts": [
+    {
+      "provider": "javbus",
+      "stage": "fetch",
+      "error_code": "fetch_failed",
+      "error_msg": "javbus 抓取失败：..."
+    },
+    {
+      "provider": "javdb",
+      "stage": "ok",
+      "error_code": "",
+      "error_msg": ""
+    }
+  ],
   "candidates": [],
   "files": [
     {
@@ -62,11 +78,11 @@
 - `provider_requested`：来自 CLI/config 的首选 provider（unmatched/config 可为空字符串）。
 - `provider_used`：最终成功使用的 provider；若未发生抓取/解析（例如 unmatched/config）则为空字符串。
 - `website`：成功解析时必须填最终 provider 的详情页 URL；否则为空字符串。
-- `attempts`（新增，可选但建议保留）：
-  - provider 尝试链路，用于解释“为何发生降级/回退”
+- `attempts`：provider 尝试链路，用于解释“为何发生降级/回退”
   - 每条包含：`provider`、`stage(fetch|parse|ok)`、失败时的 `error_code/error_msg`
   - 顺序必须与实际尝试顺序一致；成功条目通常以最后一条 `stage=="ok"` 结束
-- `candidates`：仅在 `unmatched_code(ambiguous)` 时填候选 CODE 列表；其它情况为空数组或省略（建议保留为空数组，方便机器处理）。
+  - 当前实现总是输出该字段；无尝试时输出空数组
+- `candidates`：仅在 `unmatched_code(ambiguous)` 时填候选 CODE 列表；其它情况输出空数组。
 
 ### 3.1 unmatched 条目（必须形态）
 - `code==""`
@@ -80,6 +96,8 @@
 - `status=="failed"`
 - `error_code in {config_not_found, config_invalid, config_missing_path}`
 - `files==[]`
+- `attempts==[]`
+- `candidates==[]`
 
 ## 4. files[] 结构（必须）
 每个输入视频文件必须有一条记录：
@@ -101,9 +119,9 @@
   - `failed`：该文件对应的动作失败（包括 unmatched、move_failed 等）
 
 ## 5. status 枚举（必须固定）
-- `processed`：
-  - dry-run：若 apply 将会产生变更（写 sidecar 或移动文件）。
-  - apply：本次确实产生变更（写 sidecar 或移动文件）。
+- `processed`：当前 item 成功完成且不是 `skipped`
+  - dry-run：规划与必要的 provider 验证成功
+  - apply：sidecar 生成与文件移动流程成功完成
 - `skipped`：
   - dry-run/apply：无需任何变更（既不写 sidecar，也不移动文件）。
 - `failed`：发生失败（`error_code` 必填）。

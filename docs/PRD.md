@@ -1,275 +1,69 @@
-# AVMC 产品策划文档（PRD）
+# AVMC 产品说明
 
-## 1. 背景与问题
+## 1. 产品目标
 
-本地视频文件（以“番号”为核心标识）在导入 Jellyfin/Emby/Kodi/Plex 等媒体库时，常见痛点是：
+AVMC 是一个 Go CLI，用来把“文件名包含番号 CODE 的本地视频目录”整理成媒体库友好的结构。当前产品由以下能力组成：
 
-- 文件命名/目录结构不统一，媒体库无法稳定识别同一部作品。
-- 缺少刮削得到的元数据（标题、发行日期、演员、厂牌/系列、标签等）与本地海报/背景图。
-- 手工整理成本高、重复劳动多、容易出错。
+- 扫描本地目录中的视频文件（当前支持 `.mp4`、`.mkv`、`.avi`）。
+- 从文件名和父目录名提取唯一 `CODE`。
+- 从 `javbus` 或 `javdb` 抓取元数据。
+- 生成 `NFO + poster + fanart` sidecar。
+- 把同一 `CODE` 的视频移动到固定目录 `out/<CODE>/`。
+- 输出稳定的 `RunReport` JSON，便于排障与重跑。
 
-**AVMC 的目标**是把“混乱的本地视频目录”转换为一个**结构稳定、可重复生成、可直接被媒体库扫描**的新库，并做到“少就是多”“科技无感”：用户只需要给出根目录，工具自动完成识别、刮削、生成侧车文件、归档视频。
+## 2. 当前用户可见能力
 
-> 重要约束：刮削源暂时仅支持 **JavBus** 与 **JavDB**，且均为 **HTML 抓取**。
+### 2.1 输入
 
----
+- 输入数据来自本地视频目录。
+- 扫描根目录由 CLI `path` 或 `avmc.json` 提供。
+- 同一 `CODE` 允许对应多个视频文件。
 
-## 2. 产品原则（必须坚持）
+### 2.2 输出
 
-1) 少就是多  
-- 命令入口尽量少；默认行为明确；不把“实现细节参数”暴露给用户。
+- 输出固定写到 `<path>/out/<CODE>/`。
+- 当前 sidecar 固定为：`<CODE>.nfo`、`poster.jpg`、`fanart.jpg`。
+- `apply` 模式会把视频文件移动到 `out/<CODE>/`；默认保留原文件名，冲突时追加 `__2/__3...`。
+- `apply` 模式固定写 `RunReport` 到 `<path>/cache/report.json`。
 
-2) 真正的科技是让你感觉不到科技的存在  
-- 结果结构固定、可预测；失败时给出可操作的原因；二次运行幂等（重复执行不会把库弄乱）。
+### 2.3 运行模式
 
-3) 数据优先  
-- 一切围绕“番号 CODE”建立：扫描 -> 识别 CODE -> 刮削 -> 输出到 `out/CODE/`。
-- 不做“聪明的猜测链条”，宁可失败也不写错。
+- `dry-run`：输出扫描、分组、规划结果，以及必要的 provider 可用性验证结果。
+- `apply`：生成 sidecar、provider cache、`report.json`，并完成视频归档。
 
-4) 可靠性优先于花哨功能  
-- HTML 解析用 fixture/golden 测试锁住；站点结构变化时快速发现并定位。
+### 2.4 对外入口
 
----
+- CLI 命令：`avmc run [path] [--provider javbus|javdb] [--apply[=true|false]]`
+- 配置文件：`avmc.json`
+- Docker 镜像：`ghcr.io/john-robertt/avmc`
 
-## 3. 目标用户与典型使用场景
+详细行为见 [CLI.md](./CLI.md) 与 [CONFIG.md](./CONFIG.md)。
 
-### 3.1 目标用户
-- 有本地视频收藏、文件名包含番号（例如 `CAWD-895.mp4`）的用户。
-- 使用 Jellyfin/Emby/Kodi 管理媒体库（Plex 可通过读取 Kodi NFO 的插件接入）。
+## 3. 当前硬规则
 
-### 3.2 典型场景（端到端）
-用户拥有一个根目录 `path/`，内部可能多层嵌套、命名不统一。用户希望运行一次命令后得到：
+- 一切围绕 `CODE` 建模：扫描 -> 提取 -> 分组 -> 规划 -> 执行。
+- `CODE` 提取以唯一性为准；唯一结果进入正常流程，无法唯一化的输入进入 `unmatched` 结果集。
+- 移动永远是最后一步。
+- 已存在的 sidecar 不覆盖，只补齐缺失项。
+- 输出结构必须稳定、可重跑。
 
-- `path/out/<CODE>/`：每部作品一个目录
-- `<CODE>.nfo` + `poster.jpg` + `fanart.jpg`
-- 视频文件被**移动**到上述目录（同一 `CODE` 支持多个文件；默认保留原文件名；同名自动去冲突）
+详细规则分别见 [DATA_MODEL.md](./DATA_MODEL.md)、[ALGORITHMS.md](./ALGORITHMS.md)、[IO_CONTRACT.md](./IO_CONTRACT.md)。
 
----
+## 4. 当前能力范围
 
-## 4. 产品范围
+- provider 列表为 `javbus` 与 `javdb`。
+- 元数据抓取入口为 HTML 页面。
+- 图片输出固定为 `fanart.jpg` 与由其右半边裁切得到的 `poster.jpg`。
+- NFO 输出固定为 Kodi/Jellyfin/Emby 可读取的 `<movie>` 结构。
 
-### 4.1 目标（必须实现）
-- 扫描 `path/` 下的视频文件，识别番号 CODE。
-- 从指定 provider（`javbus` 或 `javdb`）进行 HTML 抓取并解析元数据。
-- 在 `path/out/<CODE>/` 生成：
-  - `<CODE>.nfo`
-  - `poster.jpg`
-  - `fanart.jpg`
-  - 视频文件（可多个；把原视频移动到这里，默认不改名）
-- 生成可追溯的运行报告（RunReport JSON），便于重跑与排查（apply 固定写入 `<path>/cache/report.json`；stdout 非 TTY 时输出 JSON；详见 5.4）。
+详细字段见 [PROVIDERS.md](./PROVIDERS.md) 与 [NFO.md](./NFO.md)。
 
-### 4.2 非目标（明确不做）
-- 不下载/收集视频本体（只处理本地已有视频文件）。
-- 不做登录/验证码等交互式验证；不实现“验证码识别/JS 解密”等复杂反爬绕过。遇到交互式阻断仍判定 provider 不可用并失败（可通过代理池/UA/并发提升可用性，但不保证）。
-- 不做转码、抽帧、去重、字幕下载等媒体处理功能。
+## 5. 参考文档
 
----
-
-## 5. 用户界面（CLI）与使用方式
-
-### 5.1 命令（极简、稳定）
-```
-avmc run [path] [--provider javbus|javdb] [--apply[=true|false]]
-```
-
-参数语义、用法示例、输出契约详见 [CLI.md](./CLI.md)。配置文件字段与覆盖优先级详见 [CONFIG.md](./CONFIG.md)。
-
-### 5.2 例子
-- 预演（不改动）：  
-  `avmc run /path/to/path --provider javbus`
-- 执行（落盘 + 移动视频）：  
-  `avmc run /path/to/path --provider javbus --apply`
-- 一键运行（依赖当前目录 `./avmc.json` 中的 `path/provider/apply`）：  
-  `avmc run`
-
-### 5.3 Docker（等价）
-```
-docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provider javbus
-docker run --rm -v /root:/root ghcr.io/<owner>/<repo>:latest run /root --provider javbus --apply
-```
-
-### 5.4 输出与退出码（对外契约）
-- stdout 是 TTY：stdout 输出人类摘要；stderr 输出日志。
-- stdout 非 TTY：stdout **仅输出一个** RunReport JSON；stderr 输出人类摘要/日志（结构见 [REPORT.md](./REPORT.md)）。
-- apply：必须写入 `<path>/cache/report.json`；dry-run：不得落盘。
-- 退出码：`failed==0` 且 `unmatched==0` => exit `0`；否则 exit `1`。
-
-### 5.5 可选配置文件（不增加 CLI 参数）
-为了在不增加命令行参数的前提下兼顾”可用性”（站点限制/网络环境差异），工具支持 `avmc.json` 配置文件，用于控制并发/代理/排除目录/图片代理等高级行为，并支持”一键运行”。
-
-配置文件发现规则、覆盖优先级、完整字段语义见 [CONFIG.md](./CONFIG.md)。
-
-最小配置（v2）：
-```json
-{
-  “path”: “/path/to/path”,
-  “provider”: “javbus”,
-  “apply”: false,
-  “concurrency”: 4,
-  “proxy”: { “url”: “http://127.0.0.1:8080” },
-  “image_proxy”: false,
-  “exclude_dirs”: [“temp”, “downloads”]
-}
-```
-
-- `path/provider/apply`：用于”一键运行”，且允许被 CLI 覆盖。
-- `concurrency`：并发 worker 数；缺省时使用内置默认值。
-- `proxy.url`：HTTP 代理入口（后端可为代理池）；缺省则直连。
-- `image_proxy`：图片是否通过 `proxy.url` 下载；默认 `false`（不使用代理下载图片）。当 `image_proxy=true` 时要求 `proxy.url` 非空，否则视为配置错误。
-- `exclude_dirs`：排除目录列表（相对 `path` 的路径，可多个）。
-- UA 池：大量内置于工具内，按请求随机选择，不对外暴露配置。
-
----
-
-## 6. 输出规范（文件系统即 API）
-
-### 6.1 输出根路径
-- 固定为：`<path>/out/`
-
-### 6.2 目录结构
-目录布局、原子写、不覆盖、move 语义等硬规则见 [IO_CONTRACT.md](./IO_CONTRACT.md) §1。
-
-### 6.3 必须的规则
-- 扫描排除规则见 [CONFIG.md](./CONFIG.md) §3。
-- `--apply` 时对视频文件执行**移动**（优先同盘 `rename`），移动到 `out/<CODE>/`，默认**不改名**。
-- 多版本：同一 `CODE` 下允许存在多个视频文件；元数据只刮削一次，侧车文件仅生成一份。
-- 视频同名去冲突：若目标目录已存在同名视频文件，则按确定性规则自动改名（例如追加 `__2`、`__3`），并在报告中记录映射。
-- 幂等：再次运行时，若输出完整则跳过；不完整则只补齐缺失文件（例如缺图补图）。
-
----
-
-## 7. 刮削源（Providers）
-
-### 7.1 Provider 枚举（唯一选择）
-- `javbus`
-- `javdb`
-
-### 7.2 Provider 行为约束
-- 输入：规范化后的 `CODE`（例如 `CAWD-895`）
-- 输出：结构化元数据 `MovieMeta` + 海报/背景图 URL（或下载结果）
-- 统一的限速与缓存策略由核心实现（provider 只负责”如何定位页面 + 解析 HTML”）
-- 自动降级策略与 report 标记要求见 [PROVIDERS.md](./PROVIDERS.md) §2。
-
-### 7.3 NFO 中标记来源（provider 作为来源标记）
-- `<website>`：写入对应站点的详情页 URL（天然标记来源）
-
----
-
-## 8. 元数据与 NFO 规范（最小可用集）
-
-输出为 Kodi/Jellyfin/Emby 常见的 `<movie>` NFO 结构，字段保持“最小但够用”：
-
-- `title`
-- `sorttitle`（默认用 CODE）
-- `num`（CODE）
-- `studio`
-- `set`（系列/集合，若无则省略或为空）
-- `premiered` / `release`（ISO 日期）
-- `year`
-- `runtime`（分钟）
-- `country`（内置常量：`JP`；不对外暴露配置）
-- `mpaa`（内置常量：`R18+`；不对外暴露配置）
-- `actor[]`（name/role）
-- `tag[]` 与 `genre[]`
-- `website`（详情页；也是来源标记）
-- `poster` / `thumb` / `fanart`（本地文件名：`poster.jpg` / `fanart.jpg`）
-- `cover`（封面/背景图 URL，用于追溯）
-- `rating` / `userrating` / `votes`（默认 `0`，用于兼容常见 NFO 结构）
-- （可选）`uniqueid`（若实现，仅作为额外来源标记；不作为最小集要求）
-
-海报与背景图为本地文件：
-- `poster.jpg`
-- `fanart.jpg`
-
-图片规则（对外契约的一部分）：
-- `fanart.jpg`：背景大图（优先使用站点提供的封面原图）
-- `poster.jpg`：由 `fanart.jpg` 的**右半边裁切**生成（避免额外下载，保证 poster/fanart 一致）
-
-> 注意：本产品不追求把所有站点字段“全量搬运”，避免站点改版导致字段漂移、维护成本爆炸。
-
----
-
-## 9. 失败策略与可恢复性
-
-失败时的底线原则：**不移动视频，不写半成品**（或至少不让半成品覆盖已有结果）。
-
-### 9.1 常见失败类型
-错误码完整枚举与含义见 [REPORT.md](./REPORT.md) §6。
-
-### 9.2 运行报告（必有）
-- apply：固定写入 `<path>/cache/report.json`；stdout 非 TTY 时也输出同结构 JSON。
-- dry-run：不得落盘；stdout 非 TTY 时输出同结构 JSON。
-- 内容包含：
-  - processed/skipped/failed/unmatched 列表
-  - 每条的：源路径、解析出的 CODE、`provider_requested`/`provider_used`、（apply 时）移动后的目标路径映射、错误码、简短错误信息
-
-### 9.3 可恢复性硬规则（必须满足）
-1) 移动视频永远是最后一步；侧车写入原子化且不覆盖；同盘优先——详见 [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4。
-2) 单条失败不影响其他：一个 `CODE` 失败不阻断其他条目处理；但只要 `failed>0` 或 `unmatched>0`，整体 exit code 必须为 1。
-3) 幂等可重跑：已完整条目跳过；不完整只补齐缺失；同 `CODE` 新增视频文件只做归档，不重复刮削。
-
----
-
-## 10. 性能与资源（内置默认；可选配置覆盖，不新增 CLI 参数）
-
-### 10.1 可用性规则（必须满足）
-1) 默认可运行：无 `avmc.json` 也能以直连方式运行（不强依赖代理）。  
-2) 代理池模式正确生效：配置 `proxy.url` 后，provider 的页面抓取请求必须走该 HTTP 代理入口，且**每个请求新建连接**（不复用 Keep-Alive）。图片下载是否走代理由 `image_proxy` 决定。  
-3) 内置 UA 池：每个请求随机选择 UA，不需要用户维护。  
-4) provider 自动降级：见 [PROVIDERS.md](./PROVIDERS.md) §2。
-5) 有界重试与超时：网络请求必须有超时与有限重试；达到上限后以 `fetch_failed/parse_failed` 明确失败。  
-6) 图片代理可控：默认图片直连下载；当 `image_proxy=true` 时，图片下载走 `proxy.url`。  
-
-### 10.2 默认策略（内置）
-为了让工具“无感”但不打爆站点：
-- 内置并发（默认例如 4 worker，可由配置文件 `avmc.json` 覆盖）与 provider 级限速（例如 1 rps）
-- UA 池内置：每个请求随机选择 UA，降低重复特征
-- 代理池支持：当配置 `proxy.url` 时，provider 的页面抓取请求通过该 HTTP 代理入口；**每个请求必须新建连接，不复用 Keep-Alive**，以触发代理池轮换能力（图片下载是否走代理由 `image_proxy` 决定；详见 [PROVIDERS.md](./PROVIDERS.md) §4）
-- 内置缓存目录：`<path>/cache/`
-  - 按 `provider+CODE` 缓存原始 HTML 与解析结果（图片下载结果可选缓存，不作为对外契约）
-- 二次运行优先走缓存与本地已有文件，减少重复请求
-
----
-
-## 11. 交付与部署
-
-### 11.1 多平台二进制
-目标平台：
-- Linux: amd64/arm64
-- macOS: amd64/arm64
-- Windows: amd64/arm64
-
-产物：
-- 单个可执行文件 `avmc`（或 Windows 下 `avmc.exe`）
-
-### 11.2 Docker
-- 镜像内仅包含 `avmc` 二进制与必要 CA 证书
-- 默认 entrypoint 为 `avmc`
-
----
-
-## 12. 测试与验收标准
-
-### 12.1 单元测试
-- CODE 解析与规范化：大小写、分隔符、括号前缀、空格等常见变体
-- 输出路径与冲突判定逻辑
-
-### 12.2 Provider 解析测试（fixture/golden）
-- 为 `javbus` 与 `javdb` 各保存若干 `testdata/*.html` 样本
-- 解析结果与 golden JSON 对比，锁住字段与容错行为
-
-### 12.3 端到端测试（临时目录）
-- dry-run：不生成 `out/` 内容
-- apply：生成目录结构与文件齐全，视频被移动到 `out/<CODE>/`
-- 幂等：二次运行应跳过已完整条目
-- 多版本：同一 `CODE` 多个视频文件，只刮削一次并全部移动到 `out/<CODE>/`（侧车只生成一份）
-- provider 降级：见 [PROVIDERS.md](./PROVIDERS.md) §2
-- exclude_dirs：配置的排除目录不被扫描；固定排除规则见 [CONFIG.md](./CONFIG.md) §3.2
-- image_proxy：`image_proxy=false` 时图片直连下载；`image_proxy=true` 时图片下载走 `proxy.url`
-- 一键运行：`avmc run` 在 cwd 存在 `./avmc.json` 且包含 `path/provider/apply` 时可直接运行；CLI `path/--provider/--apply` 可覆盖配置
-
----
-
-## 13. 合规与声明（产品必写）
-- 本工具面向个人本地媒体库整理；使用者需自行遵守所在地法律法规与目标站点 ToS/robots。
-- 默认限速与缓存以降低对站点的压力；不提供绕过反爬/验证码能力。
+- [CLI.md](./CLI.md)：命令、输出、退出码
+- [CONFIG.md](./CONFIG.md)：配置发现与字段语义
+- [IO_CONTRACT.md](./IO_CONTRACT.md)：文件布局、原子写、移动语义
+- [HTTP_CACHE.md](./HTTP_CACHE.md)：HTTP client、代理、cache
+- [PROVIDERS.md](./PROVIDERS.md)：provider 接口与站点解析规则
+- [NFO.md](./NFO.md)：NFO 字段映射
+- [REPORT.md](./REPORT.md)：运行报告 JSON 结构

@@ -1,90 +1,118 @@
-# 架构设计（数据结构优先）
+# 当前架构事实
 
-目标：用稳定的「数据模型 + 流水线算法 + 文件系统契约」做地基，把易变部分（站点 HTML、网络策略、输出格式）隔离为可插拔组件。
+本文档描述当前仓库的分层与依赖事实。
 
-## 1. 分层与依赖方向
+## 1. 包分层
 
-依赖方向只能从上到下（禁止反向依赖）：
+### 1.1 `cmd/avmc`
 
-1) `cmd/`（入口）
-- 只做 CLI 解析、配置发现与覆盖合并、打印输出/退出码。
+- `main.go`：解析 CLI、加载配置、注册 provider、选择进度输出、调用执行入口、输出 report、返回退出码。
+- `progress_ui.go`：实现交互终端进度 UI；通过 `run.Observer` 与执行层解耦。
 
-2) `internal/app/`（用例编排，算法中心）
-- 端到端流程：scan -> extract code -> group -> plan -> execute -> report。
-- 只依赖 domain + 抽象接口（provider/cache/fs/http），不依赖具体实现。
+### 1.2 `internal/config`
 
-3) `internal/domain/`（纯数据与不变量）
-- 核心数据结构：`Code/VideoFile/WorkItem/ItemPlan/MovieMeta/RunReport`。
-- 规范化与校验：CODE 解析、路径语义、错误码枚举。
-- **禁止 IO**（不读文件、不打网络）。
+- 负责 `avmc.json` 发现、解析、字段校验和 CLI 覆盖合并。
+- 产出 `config.EffectiveConfig`，供执行层直接消费。
 
-4) `internal/infra/`（IO 能力实现）
-- `fsx`：Walk/Stat/Mkdir/Rename/atomic write 等。
-- `httpx`：HTTP client 工厂（proxy/UA/keepalive policy）+ bounded retry。
-- `cache`：文件缓存（HTML/JSON）实现（固定 `<path>/cache/`）。
+### 1.3 `internal/app`
 
-5) `internal/provider/`（站点插件）
-- `javbus`/`javdb`：页面定位 + HTML 解析 -> `MovieMeta`。
-- 用 fixture/golden 测试锁结构变化。
+- `group.go`：把 `[]VideoFile` 按 `Code` 聚合成 `[]WorkItem`。
+- `planner/`：读取 `out/<CODE>` 状态并生成 `ItemPlan`。
+- `run/`：编排一次完整运行；负责调用 scan/code/planner/provider/http/cache/nfo/fs/image 等具体能力。
 
-> 关键点：**app 层只处理 WorkItem，不处理“文件名怎么拼”“HTTP 怎么重试”这类细节**，这些细节在 infra/provider 中可替换。
+当前事实：`internal/app/run` 不是“只依赖抽象接口”的纯编排层，它直接依赖下列具体包：
 
----
+- `internal/scan`
+- `internal/provider`
+- `internal/infra/cache`
+- `internal/infra/httpx`
+- `internal/infra/fsx`
+- `internal/infra/imgx`
+- `internal/nfo`
 
-## 2. 数据流（文件系统即 API）
+### 1.4 `internal/domain`
 
-```mermaid
-flowchart TD
-  A["输入: <path>/ (本地视频目录)"] --> B["Scan (排除 out/cache + exclude_dirs)"]
-  B --> C["Extract CODE (严格, 可解释)"]
-  C --> D["Group by CODE => WorkItem[]"]
-  D --> E["Plan (OutState + 目标路径 + NeedScrape)"]
-  E --> F{"dry-run?"}
-  F -- yes --> G["stdout: 人类摘要(TTY) 或 RunReport JSON(非TTY)"]
-  F -- no --> H["Scrape (cache->fetch->parse, provider 降级)"]
-  H --> I["Write sidecars (atomic + no overwrite)"]
-  I --> J["Move videos (rename, 同名去冲突, 最后一步)"]
-  J --> K["<path>/out/<CODE>/..."]
-  H --> L["<path>/cache/ (html/json/report)"]
+- 定义 `Code`、`VideoFile`、`WorkItem`、`ItemPlan`、`MovieMeta`、`RunReport` 等数据类型与错误码枚举。
+- 职责聚焦于领域数据结构、枚举和值对象。
+
+### 1.5 `internal/scan` 与 `internal/code`
+
+- `scan`：扫描视频文件并应用排除规则。
+- `code`：从文件名和父目录名提取唯一 `Code`。
+
+### 1.6 `internal/provider`
+
+- `provider.go`：定义统一 `Provider` 接口。
+- `registry.go`：按名称注册和查找 provider。
+- `scrape.go`：实现 requested -> fallback 的抓取/解析链路，并记录尝试轨迹。
+- `javbus/`、`javdb/`：站点级 Fetch/Parse 实现和 fixture/golden 测试。
+
+### 1.7 `internal/infra`
+
+- `httpx`：构造 HTTP client，封装 UA 池、代理、keep-alive 策略、超时与有界重试。
+- `cache`：读写 `<path>/cache/providers/<provider>/<CODE>.{html,json}`。
+- `fsx`：原子写、rename、EXDEV 标记。
+- `imgx`：从 fanart 右半边裁切 poster。
+
+### 1.8 `internal/nfo`
+
+- 把 `domain.MovieMeta` 编码为固定结构的 XML NFO。
+
+## 2. 当前主执行链路
+
+```text
+cmd/avmc/main.go
+  -> config.LoadEffective
+  -> provider.NewRegistry
+  -> run.ExecuteWithObserver
+       -> httpx.NewMetaClient / NewImageClient
+       -> cache.New
+       -> scan.ScanVideos
+       -> app.GroupByCode
+       -> planner.ReadOutState
+       -> planner.PlanItem
+       -> execOne (worker pool)
+            -> scrape
+            -> nfo.Encode
+            -> fsx.WriteFileAtomicNoOverwrite / WriteFileAtomicReplace
+            -> imgx.PosterFromFanartRightHalfJPEG
+            -> fsx.Rename
+       -> RunReport.Finalize
+  -> writeReportFile (apply only)
+  -> emitReport
 ```
 
----
+## 3. 当前依赖方向
 
-## 3. 扩展点（新增需求不动地基）
+当前依赖方向大体如下：
 
-### 3.1 新增 provider
-新增一个站点只需要：
-- 新包 `internal/provider/<name>/`
-- 实现 `Provider` 接口（见 [PROVIDERS.md](./PROVIDERS.md)）
-- 增加 `testdata/*.html` 与 golden JSON，锁住解析字段
-- 注册到 registry
+```text
+cmd/avmc
+  -> internal/config
+  -> internal/app/run
+  -> internal/provider/*
 
-app 层不应因为新增 provider 而变复杂。
+internal/app/run
+  -> internal/app
+  -> internal/app/planner
+  -> internal/scan
+  -> internal/provider
+  -> internal/nfo
+  -> internal/infra/{httpx,cache,fsx,imgx}
+  -> internal/domain
+```
 
-### 3.2 新增 sidecar 输出格式
-把 NFO 写入抽象成 `Emitter`（例如 `NFOEmitter`）。
-未来新增 `.json/.yaml` 只需要新增 emitter 并在 planner 中声明需要的 sidecar，不改变扫描/刮削/移动逻辑。
+`internal/domain` 处在最底层，供上层各包共享。
 
-### 3.3 更换缓存后端
-缓存目前以文件为准（简单可解释）。
-若未来需要 SQLite，只替换 `cache` 实现与路径布局，不改变 app 层算法。
+## 4. 当前边界说明
 
----
+- 进度输出通过 `run.Observer` 解耦：`run` 只发事件，`cmd/avmc/progress_ui.go` 决定如何展示。
+- provider 页面抓取与 HTML 解析留在 `internal/provider`；HTTP client、代理和重试策略留在 `internal/infra/httpx`。
+- 当前有一个已存在的分层例外：`internal/app/run/download` 内包含 JavBus 图片下载所需的 `Referer` / `Cookie: age=verified` 处理，这部分站点细节暂未下沉到 provider 或 infra。
 
-## 4. 性能与复杂度（不做“聪明”）
+## 5. 当前架构约束
 
-### 4.1 复杂度
-- 扫描：`O(N)`（N 为文件/目录数量）
-- 分组：`O(M)`（M 为视频文件数量），`map[Code]int` 索引避免重复拷贝
-- 计划：`O(M)`（每个 WorkItem 只做 stat，不读文件内容）
-- 网络：按 `WorkItem` 并发（concurrency 个 worker），**不在单条 item 内引入复杂并行**
-
-### 4.2 数据局部性
-- `[]VideoFile` 扁平存储；`WorkItem` 只存 file index，避免复制大结构。
-- `OutState.ExistingNames` 用 map 做 O(1) 冲突判定；规模只在单个 out 目录内，足够小。
-
-### 4.3 可恢复性优先
-任何”优化”都不得破坏（完整规则见 [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4）：
-- move 最后一步
-- 原子写入 + 不覆盖
-- 幂等可重跑
+- `internal/domain` 负责承载领域数据结构与错误码枚举。
+- `internal/scan` 的职责聚焦于目录遍历和 `stat`。
+- `planner` 的职责聚焦于生成计划。
+- `run` 负责把单条失败降级为 item 级失败，不因一个 `CODE` 的失败中断整个运行。

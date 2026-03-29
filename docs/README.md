@@ -1,63 +1,67 @@
 # AVMC 文档索引
 
-本文档集合用于在开发前把「数据结构 + 算法 + 文件系统契约」说清楚，减少实现时的拍脑袋与返工。
+本文档是 `docs/` 的注册表，只回答 3 件事：
 
-## 推荐阅读顺序（从产品到实现）
-1) [PRD.md](./PRD.md)（产品目标与对外契约）
-2) [ARCHITECTURE.md](./ARCHITECTURE.md)（分层与模块边界）
-3) [DATA_MODEL.md](./DATA_MODEL.md)（核心数据结构与不变量）
-4) [ALGORITHMS.md](./ALGORITHMS.md)（端到端算法流程）
-5) [IO_CONTRACT.md](./IO_CONTRACT.md)（文件系统契约：out/cache/report/原子写/移动语义）
-6) [CONFIG.md](./CONFIG.md)（avmc.json：发现规则、覆盖优先级、字段语义）
-7) [PROVIDERS.md](./PROVIDERS.md)（provider 插件接口、fixture/golden 测试）
-8) [REPORT.md](./REPORT.md)（report.json 稳定结构与错误码）
-9) [TESTING.md](./TESTING.md)（测试矩阵与验收用例）
-10) [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md)（渐进式、可验证的开发计划）
-11) [BUILD.md](./BUILD.md)（构建与 Docker）
+1. 哪些文档定义当前行为。
+2. 哪些文档只是计划或决策记录。
+3. 每个主题应该先读哪份文档，再去看哪个代码包。
 
-（可选）架构决策记录（ADR）：见 [adr/](./adr/)
+## 文档分层
 
----
+- **现行规范**：定义当前代码必须满足的规则与对外契约。
+- **架构事实**：描述当前仓库已经落地的包边界与依赖方向。
+- **计划文档**：维护经确认的工作计划，默认不参与当前行为判断。
+- **ADR**：记录决策背景，不直接替代现行规范。
 
-## 术语表（必须统一）
-- `path`：用户传入（或配置文件给出）的扫描根目录；输出固定到 `<path>/out/`；缓存固定到 `<path>/cache/`。
-- `CODE`：作品主键（规范化后形如 `CAWD-895`）。扫描、分组、输出目录都以 CODE 为核心。
-- `dry-run`：默认模式；若需要生成 sidecar 则会执行 `fetch+parse` 验证可用性，但**不得写入** `out/` 与 `cache/`、不下载图片、不移动文件；stdout 是 TTY 时输出人类摘要，stdout 非 TTY 时 stdout 仅输出 RunReport JSON（日志走 stderr）。
-- `apply`：真实执行模式；允许写入 `out/`、`cache/` 并移动视频文件；运行报告固定写入 `<path>/cache/report.json`。
-- `sidecar`：与视频配套的元数据文件（`<CODE>.nfo`、`poster.jpg`、`fanart.jpg`）。
-- `provider`：刮削源（`javbus`/`javdb`），负责页面定位与 HTML 解析；核心流程负责缓存/重试/限速/降级策略。
+## 文档注册表
 
----
+| 文档 | 类型 | 权威范围 | 对应代码 |
+| --- | --- | --- | --- |
+| [PRD.md](./PRD.md) | 现行规范 | 产品目标、范围、用户可见行为总览 | `cmd/avmc/`、`internal/app/run/` |
+| [CLI.md](./CLI.md) | 现行规范 | 命令、帮助、输出通道、退出码 | `cmd/avmc/main.go`、`cmd/avmc/progress_ui.go` |
+| [CONFIG.md](./CONFIG.md) | 现行规范 | `avmc.json` 发现规则、覆盖优先级、字段语义 | `internal/config/config.go`、`internal/scan/scan.go` |
+| [DATA_MODEL.md](./DATA_MODEL.md) | 现行规范 | `Code`、`VideoFile`、`WorkItem`、`ItemPlan`、`MovieMeta`、`RunReport` 等领域模型 | `internal/domain/`、`internal/code/`、`internal/app/` |
+| [ALGORITHMS.md](./ALGORITHMS.md) | 现行规范 | 扫描、提取、分组、规划、执行流程 | `internal/scan/`、`internal/code/`、`internal/app/` |
+| [IO_CONTRACT.md](./IO_CONTRACT.md) | 现行规范 | `out/`、`cache/`、`report.json`、原子写、移动语义 | `internal/app/run/`、`internal/infra/fsx/` |
+| [HTTP_CACHE.md](./HTTP_CACHE.md) | 现行规范 | HTTP client、代理、UA、重试、provider cache 读写 | `internal/infra/httpx/`、`internal/infra/cache/`、`internal/app/run/` |
+| [PROVIDERS.md](./PROVIDERS.md) | 现行规范 | provider 接口、降级链、站点解析规则、fixture/golden | `internal/provider/` |
+| [NFO.md](./NFO.md) | 现行规范 | `MovieMeta -> <CODE>.nfo` 的字段映射与固定值 | `internal/nfo/nfo.go` |
+| [REPORT.md](./REPORT.md) | 现行规范 | `RunReport` JSON 结构、状态枚举、错误码 | `internal/domain/report.go`、`cmd/avmc/main.go` |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构事实 | 当前包分层、依赖方向、例外点 | `cmd/`、`internal/` |
+| [TESTING.md](./TESTING.md) | 现行规范 | 当前测试矩阵、golden 更新方式、验证命令 | `*_test.go` |
+| [BUILD.md](./BUILD.md) | 现行规范 | 当前发布流程、GitHub Actions、Docker 镜像 | `.github/workflows/release.yml`、`Dockerfile` |
+| [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) | 计划文档 | 已确认的工作计划容器 | 无固定包 |
+| [adr/](./adr/) | ADR | 架构决策背景与取舍 | 相关代码按主题查找 |
 
-## 关键不变量（实现必须遵守）
-1) **移动永远最后一步**：刮削/解析/侧车生成失败时，禁止移动任何视频文件。
-2) **不覆盖**：已有 sidecar（nfo/poster/fanart）不得覆盖；只能补齐缺失。
-3) **扫描排除固定**：`<path>/out/`、`<path>/cache/` 永远排除；`exclude_dirs` 额外排除。
-4) **每请求新建连接**：启用代理池时，HTTP 请求不复用 keep-alive，以触发池化轮换。
-5) **幂等可重跑**：重复运行不会把库弄乱；输出结构稳定且可预测。
+## 术语表
 
----
+- `path`：扫描根目录。输出固定到 `<path>/out/`；缓存固定到 `<path>/cache/`。
+- `CODE`：作品主键，规范化后形如 `CAWD-895`。
+- `dry-run`：默认模式；允许读取只读 cache，但不写 `out/`、不写 `cache/`、不下载图片、不移动文件。
+- `apply`：真实执行模式；允许写入 `out/` 与 `cache/`，并在 sidecar 满足后移动视频文件。
+- `sidecar`：与视频配套的 `nfo/poster/fanart` 文件。
+- `provider`：元数据来源，目前仅 `javbus` 与 `javdb`。
 
-## 文档更新规则（避免文档漂移）
-- PRD：只描述对外行为与验收标准；不写实现细节。
-- ARCHITECTURE / DATA_MODEL / ALGORITHMS：描述实现必须遵守的结构与流程；变更要同步测试用例。
-- PROVIDERS：只写 provider 接口与解析规范；HTML 字段变化用 fixture/golden 测试锁住。
-- DEVELOPMENT_PLAN：按阶段产出与验证命令维护；每完成一个阶段就更新状态与下一步。
+## 权威源索引
 
----
+| 主题 | 权威文档 |
+| --- | --- |
+| CLI 参数、帮助、输出通道、退出码 | [CLI.md](./CLI.md) |
+| 配置发现、覆盖优先级、字段语义 | [CONFIG.md](./CONFIG.md) |
+| 数据结构与不变量 | [DATA_MODEL.md](./DATA_MODEL.md) |
+| 扫描、提取、分组、规划、执行流程 | [ALGORITHMS.md](./ALGORITHMS.md) |
+| 文件布局、原子写、不覆盖、移动最后 | [IO_CONTRACT.md](./IO_CONTRACT.md) |
+| HTTP client、代理、UA、重试、provider cache | [HTTP_CACHE.md](./HTTP_CACHE.md) |
+| provider 接口、降级链、站点解析 | [PROVIDERS.md](./PROVIDERS.md) |
+| NFO 输出字段 | [NFO.md](./NFO.md) |
+| 运行报告结构与错误码 | [REPORT.md](./REPORT.md) |
+| 当前包分层与依赖方向 | [ARCHITECTURE.md](./ARCHITECTURE.md) |
+| 测试矩阵与验证命令 | [TESTING.md](./TESTING.md) |
+| 当前发布流程 | [BUILD.md](./BUILD.md) |
 
-## 权威源索引（每条规则只在一个文档中定义）
+## 维护规则
 
-| 主题 | 权威文档 | 其他文档引用 |
-|---|---|---|
-| out/cache 固定排除 | [CONFIG.md](./CONFIG.md) §3.2 | PRD、ALGORITHMS、DATA_MODEL、TESTING |
-| provider 自动降级策略 | [PROVIDERS.md](./PROVIDERS.md) §2 | PRD、CLI、DATA_MODEL、DEVELOPMENT_PLAN |
-| 输出目录布局 | [IO_CONTRACT.md](./IO_CONTRACT.md) §1 | PRD |
-| CLI 参数与用法 | [CLI.md](./CLI.md) | PRD、CONFIG |
-| 错误码枚举与含义 | [REPORT.md](./REPORT.md) §6 | PRD |
-| move-last / 原子写 / 不覆盖 | [IO_CONTRACT.md](./IO_CONTRACT.md) §3-4 | PRD、DATA_MODEL |
-| 配置发现规则与字段语义 | [CONFIG.md](./CONFIG.md) §1-3 | CLI、PRD |
-| 数据结构与不变量 | [DATA_MODEL.md](./DATA_MODEL.md) | ARCHITECTURE、ALGORITHMS |
-| 测试策略与 golden 更新 | [TESTING.md](./TESTING.md) | PROVIDERS |
-
-**原则**：修改规则时只改权威文档；其他文档如有引用需同步，但不重复内容。引用方式：`见 <doc>.md §<section>`。
+- 现行规范聚焦当前行为、当前接口和当前结构。
+- 工作计划与决策背景分别维护在 `DEVELOPMENT_PLAN.md` 与 `docs/adr/`。
+- 同一条现行规则只在一份权威文档中定义；其它文档只引用，不重复展开。
+- 当用户明确要求“文档对齐当前代码”时，以代码和测试作为当前行为证据修正文档。

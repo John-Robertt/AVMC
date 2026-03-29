@@ -1,77 +1,88 @@
 # CLI 使用说明
 
-CLI 只保留三个入口：`path/provider/apply`。其余配置全部通过 `avmc.json` 控制（见 [CONFIG.md](./CONFIG.md)）。
+当前 CLI 只暴露 1 个命令和 3 个运行入口：`path`、`provider`、`apply`。
 
 ## 1. 命令
+
 ```bash
+avmc --help
+avmc run --help
 avmc run [path] [--provider javbus|javdb] [--apply[=true|false]]
 ```
 
 参数：
-- `path`：扫描根目录（可省略；用于配置文件一键运行）
-- `--provider`：首选刮削源（失败会自动降级到另一个 provider）
-- `--apply`：真实写入与移动；默认 dry-run；支持 `--apply=false`
 
-## 2. 典型用法
+- `path`：扫描根目录。可省略；省略时按 [CONFIG.md](./CONFIG.md) 的规则读取 `./avmc.json`。
+- `--provider`：首选 provider，允许值为 `javbus` 或 `javdb`。
+- `--apply`：开启真实写入与移动；默认是 dry-run。
+- `--apply=false`：显式覆盖配置文件中的 `apply=true`。
 
-### 2.1 dry-run（默认）
+## 2. 运行模式
+
+### 2.1 dry-run
+
 ```bash
 avmc run /data/videos
 ```
+
 行为：
-- 扫描 + 计划；若需要生成 sidecar，则会执行 `fetch+parse` 做可用性验证（含 provider 自动降级）。
-- **不得写入** `out/` 与 `cache/`；不下载图片；不移动任何视频文件。
 
-输出（对外契约，详见下文「输出与退出码」）：
-- stdout 是 TTY：stdout 输出人类摘要；stderr 输出日志。
-- stdout 非 TTY：stdout **仅输出一个** `RunReport` JSON；stderr 输出人类摘要/日志（JSON 结构见 [REPORT.md](./REPORT.md)）。
+- 做扫描、提取、分组、规划。
+- 仅在 `NeedScrape=true` 时验证 provider 可用性。
+- 不写 `out/`、不写 `cache/`、不下载图片、不移动视频。
 
-### 2.2 apply（落盘 + 移动）
+### 2.2 apply
+
 ```bash
 avmc run /data/videos --apply
 ```
-行为：
-- 写入 `<path>/out/` 与 `<path>/cache/`，并移动视频到 `out/<CODE>/`（移动永远是最后一步）。
-- 运行报告固定写入：`<path>/cache/report.json`（结构见 [REPORT.md](./REPORT.md)）。
 
-### 2.3 指定 provider（首选）
+行为：
+
+- 写入 sidecar。
+- 写入 provider cache 和 `report.json`。
+- 在 sidecar 满足后移动视频到 `out/<CODE>/`。
+
+### 2.3 指定首选 provider
+
 ```bash
 avmc run /data/videos --provider javdb
 ```
-说明：首选 javdb；若失败会自动降级到 javbus，并在 report 中标记实际来源。
 
-### 2.4 一键运行（无参）
-前提：当前目录存在 `./avmc.json` 且包含 `path` 字段。
+说明：requested provider 失败时会自动降级到另一个 provider，并在 report 中记录 `provider_requested` 与 `provider_used`。
+
+## 3. 输出通道
+
+### 3.1 report 输出
+
+- 若 `stdout` 不是 TTY：`stdout` 必须且仅输出一个 `RunReport` JSON。
+- 若 `stdout` 是 TTY：`stdout` 输出一行人类摘要。
+
+### 3.2 进度输出
+
+- 交互进度只在存在终端时启用。
+- 进度输出优先写到 `stderr`。
+- 若 `stderr` 不是 TTY 但 `stdout` 是 TTY，则退化输出到 `stdout`。
+- 非 TTY 的 `stdout` 保留给单个 `RunReport` JSON。
+- 交互模式完成后，当前 CLI 还会额外打印 `out:` 路径；`apply` 模式会再打印 `report:` 路径。
+
+### 3.3 report.json
+
+- `apply`：写入 `<path>/cache/report.json`。
+- `dry-run`：不落盘。
+
+## 4. 退出码
+
+- `0`：执行完成，且 `failed==0 && unmatched==0`；帮助命令也返回 `0`
+- `1`：运行失败、配置错误、report 写入失败，或最终存在 `failed/unmatched`
+- `2`：CLI 用法错误，例如未知命令或非法参数
+
+## 5. Docker
+
 ```bash
-avmc run
+docker run --rm ghcr.io/john-robertt/avmc:latest --help
+docker run --rm -v /data/videos:/data/videos ghcr.io/john-robertt/avmc:latest run /data/videos
+docker run --rm -v /data/videos:/data/videos ghcr.io/john-robertt/avmc:latest run /data/videos --apply
 ```
 
-### 2.5 覆盖配置中的 apply=true（临时 dry-run）
-```bash
-avmc run --apply=false
-```
-
-## 3. 输出与退出码（对外契约）
-
-### 3.1 stdout/stderr
-- stdout 是 TTY：stdout 输出人类摘要（便于交互查看）。
-- stdout 非 TTY：stdout 仅输出一个 `RunReport` JSON（便于脚本化）。
-- 任何模式下日志/进度信息都写入 stderr（避免污染 JSON）。
-
-### 3.2 report.json
-- apply：写入 `<path>/cache/report.json`。
-- dry-run：**不落盘**；当 stdout 非 TTY 时，stdout 输出的 JSON 与 report.json **同结构**。
-
-### 3.3 退出码（最小且可解释）
-- `failed==0` 且 `unmatched==0` => exit `0`
-- 否则 exit `1`
-
-## 4. Docker
-```bash
-docker run --rm -v /data/videos:/data/videos ghcr.io/<owner>/<repo>:latest run /data/videos
-docker run --rm -v /data/videos:/data/videos ghcr.io/<owner>/<repo>:latest run /data/videos --apply
-```
-
-建议：
-- 把 `avmc.json` 放在挂载的目录中（`/data/videos/avmc.json`）
-- 注意容器写入权限（避免在宿主机生成 root-owned 文件）
+如果要使用配置文件，把 `avmc.json` 放到挂载目录中，例如 `/data/videos/avmc.json`。

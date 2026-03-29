@@ -1,136 +1,126 @@
-# 端到端算法流程（可验证）
+# 端到端算法流程
 
-这份文档把 PRD 的对外行为落成可实现、可测试的算法步骤。核心思想：**先把数据结构定死，算法自然变成线性流水线**。
+本文档只描述当前代码已经实现的执行流程。
 
-## 0. 输入/输出
-- 输入：`path/` 下的视频文件树
-- 输出：`<path>/out/<CODE>/...`（媒体库结构）与 `<path>/cache/...`（缓存/报告）
+## 1. 输入与输出
 
-## 1. 配置发现与合并（确定性）
-输入：CLI（仅 `path/provider/apply`）+ `avmc.json`  
-输出：`EffectiveConfig`
+- 输入：扫描根目录 `path/` 下的视频文件树。
+- 输出：
+  - `<path>/out/<CODE>/...`
+  - `<path>/cache/providers/<provider>/<CODE>.{html,json}`
+  - `apply` 模式下的 `<path>/cache/report.json`
 
-步骤：
-1) 若 CLI 提供 `path`：
-   - `path = abs(clean(cli.path))`
-   - 读取 `<path>/avmc.json`（可选）
-2) 若 CLI 不提供 `path`：
-   - 必须读取 `./avmc.json`（必选），且必须包含 `path`
-   - `path = abs(clean(config.path))`
-3) 覆盖优先级：
-   - `provider`：CLI > config > 默认 `javbus`
-   - `apply`：CLI `--apply/--apply=false` > config > 默认 `false`
-   - 其他字段：仅 config 控制
-4) 计算排除目录：
-   - 固定排除 + 配置排除规则见 [CONFIG.md](./CONFIG.md) §3
+## 2. 配置阶段
 
-验证点：
-- `avmc run`（无参）在 cwd 有 `avmc.json` 且含 `path` 时可以运行
-- `--apply=false` 能覆盖 config.apply=true
+配置发现、字段校验和覆盖优先级由 `internal/config.LoadEffective` 处理，详见 [CONFIG.md](./CONFIG.md)。执行层直接消费 `config.EffectiveConfig`。
 
----
+## 3. 扫描
 
-## 2. 扫描（O(N)）
-目标：只收集“可能是视频”的文件，不读内容。
-
-算法：
-1) `WalkDir(path)`
-2) 若当前目录命中排除（前缀匹配 + 路径边界）=> `SkipDir`
-3) 若是文件且 ext 在白名单 => 收集 `VideoFile{AbsPath, RelPath, Ext, Size, ModTime}`
-
-验证点：
-- `out/` 与 `cache/` 永久不被扫描
-- `exclude_dirs` 指定的目录整棵被排除
-
----
-
-## 3. CODE 提取（严格且可解释）
-输入：`VideoFile`（文件名 + 父目录名作为候选）  
-输出：`Code` 或 `unmatched_code`
-
-原则：
-- 允许失败，不允许写错
-- 多候选冲突 => 失败（ambiguous）
-
-验证点：
-- 大小写/分隔符变体能规范化为同一 CODE
-- ambiguous/no_match 都能给出明确原因
-
----
-
-## 4. 分组（扁平数据，低拷贝）
-输入：`files []VideoFile`  
-输出：`items []WorkItem`（每个 WorkItem 只存 file index）
-
-算法：
-- `index := map[Code]int{}`
-- 逐个 file：
-  - `code = Extract(file)`
-  - 若 unmatched：记录到 report（`status=unmatched`），不进入 items
-  - 否则：
-    - 若 `index[code]` 不存在：`items = append(items, WorkItem{Code: code})`，并记录 index
-    - `items[idx].FileIdx = append(...)`
-- 排序（必须确定性）：
-  - `items` 按 `Code` 字典序排序
-  - 每个 item 内：`FileIdx` 按对应 `VideoFile.RelPath` 字典序排序
-
-验证点：
-- 同一 CODE 多文件 => 归并为一个 item
-- 输出顺序稳定（`Code` 字典序；item 内按 `RelPath`），保证报告与去冲突结果可复现
-
----
-
-## 5. 计划（Planner）
-输入：`WorkItem` + 当前文件系统（stat）  
-输出：`ItemPlan`
+入口：`internal/scan.ScanVideos`
 
 步骤：
-1) `outDir = <path>/out/<CODE>/`
-2) `OutState = stat(outDir)`：检测 nfo/poster/fanart 是否已存在；收集目录内现有文件名集合
-3) `NeedScrape = NeedNFO || NeedFanart`
-   - poster 由 fanart 的右半边裁切得到：当且仅当需要 NFO 或 fanart 时才必须刮削
-4) `MovePlan`：
+
+1. `filepath.WalkDir(path)` 遍历扫描根目录。
+2. 永久排除 `<path>/out/` 和 `<path>/cache/`。
+3. 额外排除 `exclude_dirs` 中的路径；相对路径按 `path` 解析，绝对路径按绝对路径处理。
+4. 只收集扩展名在白名单中的文件：`.mp4`、`.mkv`、`.avi`。
+5. 对每个命中文件只做 `DirEntry.Info()`，生成 `VideoFile{AbsPath, RelPath, Base, Ext, Size, ModUnix}`。
+6. 最终按 `RelPath` 排序，保证稳定输出。
+
+## 4. CODE 提取
+
+入口：`internal/code.Extract`
+
+步骤：
+
+1. 从 `VideoFile.Base` 提取候选。
+2. 从父目录名再提取一次候选。
+3. 允许的候选格式为：`[a-z]{2,6}[\s._-]+[0-9]{2,5}`，提取后规范化为 `AAAA-999` 形态。
+4. 空候选集合对应 `Unmatched{Kind:"no_match"}`。
+5. 若有多个不同候选，返回 `Unmatched{Kind:"ambiguous", Candidates: ...}`。
+6. 若唯一候选满足 `domain.ParseCode`，返回规范化后的 `Code`。
+
+## 5. 分组
+
+入口：`internal/app.GroupByCode`
+
+步骤：
+
+1. 遍历扫描结果，按 `Code` 把文件索引聚合到 `WorkItem.FileIdx`。
+2. 无法提取 `Code` 的文件不进入 `WorkItem`，而是单独记为 `Unmatched`。
+3. `items` 按 `Code` 字典序排序。
+4. 每个 `WorkItem.FileIdx` 再按对应 `VideoFile.RelPath` 排序。
+
+## 6. 规划
+
+入口：`internal/app/planner.ReadOutState` 与 `internal/app/planner.PlanItem`
+
+步骤：
+
+1. 读取 `out/<CODE>/` 当前状态：
+   - `HasNFO`
+   - `HasPoster`
+   - `HasFanart`
+   - `ExistingNames`
+2. 为该 `CODE` 的每个输入文件分配目标文件名：
    - 默认保留原文件名
-   - 若目标同名冲突（含“目录已有”和“本次规划内已占用”）=> 追加 `__2/__3...`（确定性）
-   - 分配规则：从 `OutState.ExistingNames` 初始化 `used` 集合；按 item 内稳定顺序逐条分配，并把新分配的名字加入 `used`
+   - 若目标目录已有同名文件，或同一批规划内已占用同名文件，则追加 `__2/__3...`
+3. 计算 sidecar 需求：
+   - `NeedNFO = !HasNFO`
+   - `NeedPoster = !HasPoster`
+   - `NeedFanart = !HasFanart`
+   - `NeedScrape = NeedNFO || NeedFanart`
 
-验证点：
-- 已完整条目被标记为 skipped（除非有新增文件需要归档）
-- 同名冲突得到确定性的 dst 名，并写入 report 映射
+当前实现的含义是：
 
----
+- 缺 NFO 或缺 fanart 时，必须抓 provider。
+- 仅缺 poster 时，不触发 provider 抓取；`apply` 时会尝试从已存在的 `fanart.jpg` 生成 poster。
 
-## 6. 执行（Executor）
-并发模型：按 WorkItem 并发（worker pool），item 内串行。
+## 7. 执行
 
-### 6.1 dry-run
-- 仅对 `NeedScrape=true` 的 item 执行 `fetch+parse` 做可用性验证（含 provider 自动降级）；允许读取已有 `<path>/cache/`（只读）。
-- **不得写入** `out/` 与 `cache/`；不下载图片；不移动任何视频文件。
-- 输出契约见 [CLI.md](./CLI.md) 与 [REPORT.md](./REPORT.md)（TTY 人类摘要；非 TTY stdout 仅 JSON）。
+入口：`internal/app/run.ExecuteWithObserver`
 
-### 6.2 apply
-硬规则：移动最后一步。
+### 7.1 总体流程
 
-步骤（每个 item）：
-1) 若 `NeedScrape`：
-   - `Scrape(code)`：cache->fetch->parse（requested 失败自动降级）
-   - 缓存策略（必须自愈，避免“坏缓存卡死”）：
-     - 优先读 `<path>/cache/providers/<p>/<CODE>.json`；存在且可解析则直接使用
-     - 否则尝试 `<CODE>.html`：parse 失败时，必须绕过缓存强制 refetch 一次再 parse；仍失败才 `parse_failed`
-     - 网络 fetch 失败但存在可用缓存时，允许回退使用缓存（提高可用性）
-   - apply 成功后写入/更新 `<CODE>.html` 与 `<CODE>.json`；dry-run 禁止写入 cache
-2) sidecar：
-   - 若缺失则写入（原子写 + 不覆盖）
-   - 图片按 `image_proxy` 决定是否走代理
-   - fanart：下载背景图写入 `fanart.jpg`
-   - poster：从 fanart 右半边裁切生成 `poster.jpg`（不再单独下载 cover）
-3) move：
-   - 逐文件 `rename` 到目标（同盘优先）
-   - 中途失败 => 记录 `move_failed`，并尝试回滚已移动文件
-4) report：
-   - item 结果汇总（含 provider_used 与 src->dst）
+1. 创建 `metaClient`；`apply` 模式下再创建 `imageClient`。
+2. 创建 `cache.Store`，`dry-run` 时为只读。
+3. 扫描、提取、分组、规划。
+4. 将 `ItemPlan` 投递给 worker pool；并发度取 `EffectiveConfig.Concurrency`，最小为 1。
+5. 收集每个 item 的执行结果，最后调用 `RunReport.Finalize()` 排序并统计摘要。
 
-验证点：
-- `NeedScrape=true` 且刮削失败 => 该 item 禁止 move
-- sidecar 写入采用临时文件 + rename；已有文件不覆盖
-- EXDEV（跨盘）=> 失败并提示，不做 copy+delete
+### 7.2 dry-run
+
+- 若 `NeedScrape=true`，调用 `scrape(...)` 验证 provider 可用性。
+- 不写 `out/`、不写 `cache/`、不下载图片、不移动视频。
+- `NeedNFO`、`NeedPoster`、`NeedFanart` 全为 `false` 且没有待移动文件的 item 记为 `skipped`。
+
+### 7.3 apply
+
+硬规则：移动永远最后一步。
+
+执行顺序：
+
+1. 若 `NeedScrape=true`，先抓取元数据。
+2. `ensureDir(out/<CODE>)`。
+3. 若缺 NFO，调用 `nfo.Encode(meta)` 并以“不覆盖”的原子写方式生成 `<CODE>.nfo`。
+4. 若缺 fanart，下载 `meta.FanartURL` 并原子写入 `fanart.jpg`。
+5. 若缺 poster：
+   - 优先使用本次下载到内存的 fanart 字节；
+   - 否则读取本地已有的 `fanart.jpg`；
+   - 调用 `imgx.PosterFromFanartRightHalfJPEG` 生成 `poster.jpg`。
+6. sidecar 全部满足后，逐文件 `rename` 到目标路径。
+7. 若移动中途失败，尝试把之前已移动成功的文件按倒序 rollback 回原路径。
+
+## 8. 抓取与 cache 逻辑
+
+入口：`internal/app/run.scrape`
+
+当前实现步骤：
+
+1. 只尝试读取“requested provider”的 JSON cache：`<path>/cache/providers/<requested>/<CODE>.json`。
+2. 可反序列化的 JSON cache 直接形成返回结果。
+3. 若 JSON cache 缺失或内容损坏，忽略它并继续走网络。
+4. 调用 `provider.FetchParseTrace`，按 `requested -> fallback` 顺序抓取与解析。
+5. `apply` 模式下，把最终成功 provider 的 HTML 和 JSON 写回其目录；`dry-run` 不写 cache。
+
+更细的 HTTP、代理、重试和 cache 规则见 [HTTP_CACHE.md](./HTTP_CACHE.md)。

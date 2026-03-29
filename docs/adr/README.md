@@ -1,6 +1,6 @@
 # ADR（架构决策记录）
 
-ADR 用于记录“当时为什么这么定”，避免未来改动时重复争论或误解。
+ADR 用于记录架构决策的背景、选择和后果。
 
 规则：
 - 每条 ADR 只解决一个决策点
@@ -11,4 +11,3 @@ ADR 用于记录“当时为什么这么定”，避免未来改动时重复争�
 - [0001-cli-config-precedence.md](./0001-cli-config-precedence.md)
 - [0002-filesystem-contract.md](./0002-filesystem-contract.md)
 - [0003-http-proxy-policy.md](./0003-http-proxy-policy.md)
-

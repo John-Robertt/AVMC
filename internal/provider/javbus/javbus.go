@@ -26,6 +26,16 @@ type Provider struct{}
 
 func (Provider) Name() string { return "javbus" }
 
+func (Provider) PrepareImageRequest(req *http.Request, meta domain.MovieMeta) {
+	if req == nil {
+		return
+	}
+	if strings.TrimSpace(meta.Website) != "" {
+		req.Header.Set("Referer", meta.Website)
+	}
+	req.Header.Set("Cookie", "age=verified")
+}
+
 // Fetch 直接进入详情页：https://www.javbus.com/<CODE>
 func (Provider) Fetch(ctx context.Context, code domain.Code, c *http.Client) ([]byte, string, error) {
 	if c == nil {

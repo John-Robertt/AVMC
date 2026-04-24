@@ -108,7 +108,7 @@ internal/app/run
 
 - 进度输出通过 `run.Observer` 解耦：`run` 只发事件，`cmd/avmc/progress_ui.go` 决定如何展示。
 - provider 页面抓取与 HTML 解析留在 `internal/provider`；HTTP client、代理和重试策略留在 `internal/infra/httpx`。
-- 当前有一个已存在的分层例外：`internal/app/run/download` 内包含 JavBus 图片下载所需的 `Referer` / `Cookie: age=verified` 处理，这部分站点细节暂未下沉到 provider 或 infra。
+- provider 可通过可选图片请求接口声明站点级图片下载请求头；执行层只应用该策略，不内置具体站点判断。
 
 ## 5. 当前架构约束
 

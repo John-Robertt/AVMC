@@ -69,12 +69,13 @@
    - `NeedNFO = !HasNFO`
    - `NeedPoster = !HasPoster`
    - `NeedFanart = !HasFanart`
-   - `NeedScrape = NeedNFO || NeedFanart`
+   - `NeedsScrape() = NeedNFO || NeedFanart`
 
 当前实现的含义是：
 
 - 缺 NFO 或缺 fanart 时，必须抓 provider。
 - 仅缺 poster 时，不触发 provider 抓取；`apply` 时会尝试从已存在的 `fanart.jpg` 生成 poster。
+- sidecar 名称存在但不是普通文件时，规划阶段失败为 `target_conflict`，并禁止移动视频。
 
 ## 7. 执行
 
@@ -90,7 +91,7 @@
 
 ### 7.2 dry-run
 
-- 若 `NeedScrape=true`，调用 `scrape(...)` 验证 provider 可用性。
+- 若 `NeedsScrape()=true`，调用 `scrape(...)` 验证 provider 可用性。
 - 不写 `out/`、不写 `cache/`、不下载图片、不移动视频。
 - `NeedNFO`、`NeedPoster`、`NeedFanart` 全为 `false` 且没有待移动文件的 item 记为 `skipped`。
 
@@ -100,7 +101,7 @@
 
 执行顺序：
 
-1. 若 `NeedScrape=true`，先抓取元数据。
+1. 若 `NeedsScrape()=true`，先抓取元数据。
 2. `ensureDir(out/<CODE>)`。
 3. 若缺 NFO，调用 `nfo.Encode(meta)` 并以“不覆盖”的原子写方式生成 `<CODE>.nfo`。
 4. 若缺 fanart，下载 `meta.FanartURL` 并原子写入 `fanart.jpg`。

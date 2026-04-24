@@ -10,6 +10,10 @@ type Provider interface {
   Fetch(ctx context.Context, code domain.Code, c *http.Client) (html []byte, pageURL string, err error)
   Parse(code domain.Code, html []byte, pageURL string) (domain.MovieMeta, error)
 }
+
+type ImageRequestPreparer interface {
+  PrepareImageRequest(req *http.Request, meta domain.MovieMeta)
+}
 ```
 
 当前约束：
@@ -74,4 +78,5 @@ internal/provider/javdb/golden/*.json
 
 - provider 只提供 `FanartURL` / `CoverURL` 等元数据，不直接写图片文件。
 - `fanart.jpg` 下载与 `poster.jpg` 裁切由执行层处理。
-- JavBus 图片下载时需要的 `Referer` / `Cookie: age=verified` 头目前不在 provider 内部处理，而是在执行层下载函数中处理；这属于当前实现边界的一部分。
+- 若 provider 实现 `ImageRequestPreparer`，执行层会在下载图片前调用它补充站点级请求头。
+- JavBus 当前通过该可选接口为图片下载补充 `Referer` 与 `Cookie: age=verified`。

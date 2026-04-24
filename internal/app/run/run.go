@@ -2,12 +2,9 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +24,34 @@ import (
 	"github.com/John-Robertt/AVMC/internal/scan"
 )
 
+type runDeps struct {
+	newMetaClient  func(proxyURL string) (*http.Client, error)
+	newImageClient func(proxyURL string, imageProxy bool) (*http.Client, error)
+	rename         func(src, dst string) error
+}
+
+func defaultRunDeps() runDeps {
+	return runDeps{
+		newMetaClient:  httpx.NewMetaClient,
+		newImageClient: httpx.NewImageClient,
+		rename:         fsx.Rename,
+	}
+}
+
+func (d runDeps) withDefaults() runDeps {
+	defaults := defaultRunDeps()
+	if d.newMetaClient == nil {
+		d.newMetaClient = defaults.newMetaClient
+	}
+	if d.newImageClient == nil {
+		d.newImageClient = defaults.newImageClient
+	}
+	if d.rename == nil {
+		d.rename = defaults.rename
+	}
+	return d
+}
+
 // Execute 执行一次 run（dry-run/apply），并返回对外稳定的 RunReport。
 // 该函数尽量把错误“降级”为 item 级失败（单条失败不影响其他）。
 func Execute(ctx context.Context, eff config.EffectiveConfig, reg provider.Registry) domain.RunReport {
@@ -35,6 +60,11 @@ func Execute(ctx context.Context, eff config.EffectiveConfig, reg provider.Regis
 
 // ExecuteWithObserver 与 Execute 相同，但允许传入 Observer 以输出进度/阶段信息（由上层决定是否启用）。
 func ExecuteWithObserver(ctx context.Context, eff config.EffectiveConfig, reg provider.Registry, obs Observer) domain.RunReport {
+	return executeWithObserverDeps(ctx, eff, reg, obs, defaultRunDeps())
+}
+
+func executeWithObserverDeps(ctx context.Context, eff config.EffectiveConfig, reg provider.Registry, obs Observer, deps runDeps) domain.RunReport {
+	deps = deps.withDefaults()
 	started := time.Now().UTC()
 
 	if obs != nil {
@@ -48,7 +78,7 @@ func ExecuteWithObserver(ctx context.Context, eff config.EffectiveConfig, reg pr
 		Items:     make([]domain.ItemResult, 0, 128),
 	}
 
-	metaClient, err := httpx.NewMetaClient(eff.ProxyURL)
+	metaClient, err := deps.newMetaClient(eff.ProxyURL)
 	if err != nil {
 		rr.Items = append(rr.Items, syntheticFailed(domain.ErrCodeConfigInvalid, fmt.Sprintf("proxy.url 无效：%v", err)))
 		rr.FinishedAt = time.Now().UTC()
@@ -58,7 +88,7 @@ func ExecuteWithObserver(ctx context.Context, eff config.EffectiveConfig, reg pr
 
 	var imageClient *http.Client
 	if eff.Apply {
-		ic, e := httpx.NewImageClient(eff.ProxyURL, eff.ImageProxy)
+		ic, e := deps.newImageClient(eff.ProxyURL, eff.ImageProxy)
 		if e != nil {
 			rr.Items = append(rr.Items, syntheticFailed(domain.ErrCodeConfigInvalid, e.Error()))
 			rr.FinishedAt = time.Now().UTC()
@@ -116,12 +146,20 @@ func ExecuteWithObserver(ctx context.Context, eff config.EffectiveConfig, reg pr
 	for _, it := range items {
 		st, e := planner.ReadOutState(eff.Path, it.Code)
 		if e != nil {
-			rr.Items = append(rr.Items, failedPlanItem(eff.Provider, it, files, absToRel, domain.ErrCodeIOFailed, fmt.Sprintf("读取 out 状态失败：%v", e)))
+			errCode := domain.ErrCodeIOFailed
+			if planner.IsTargetConflict(e) {
+				errCode = domain.ErrCodeTargetConflict
+			}
+			rr.Items = append(rr.Items, failedPlanItem(eff.Provider, it, files, absToRel, errCode, fmt.Sprintf("读取 out 状态失败：%v", e)))
 			continue
 		}
 		p, e := planner.PlanItem(eff.Provider, files, it, st)
 		if e != nil {
-			rr.Items = append(rr.Items, failedPlanItem(eff.Provider, it, files, absToRel, domain.ErrCodeIOFailed, fmt.Sprintf("规划失败：%v", e)))
+			errCode := domain.ErrCodeIOFailed
+			if planner.IsTargetConflict(e) {
+				errCode = domain.ErrCodeTargetConflict
+			}
+			rr.Items = append(rr.Items, failedPlanItem(eff.Provider, it, files, absToRel, errCode, fmt.Sprintf("规划失败：%v", e)))
 			continue
 		}
 		plans = append(plans, p)
@@ -132,7 +170,7 @@ func ExecuteWithObserver(ctx context.Context, eff config.EffectiveConfig, reg pr
 		var needScrape, needNFO, needFanart, needPoster, moves int
 		for i := range plans {
 			p := plans[i]
-			if p.Need.NeedScrape {
+			if p.Need.NeedsScrape() {
 				needScrape++
 			}
 			if p.Need.NeedNFO {
@@ -186,7 +224,7 @@ func ExecuteWithObserver(ctx context.Context, eff config.EffectiveConfig, reg pr
 			defer wg.Done()
 			for p := range jobs {
 				oneStarted := time.Now()
-				r := execOne(ctx, eff, p, reg, metaClient, imageClient, store, absToRel)
+				r := execOne(ctx, eff, p, reg, metaClient, imageClient, store, absToRel, deps)
 				results <- execResult{
 					code: p.Code,
 					res:  r,
@@ -288,7 +326,8 @@ func syntheticFailed(code, msg string) domain.ItemResult {
 	}
 }
 
-func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan, reg provider.Registry, metaClient, imageClient *http.Client, store cache.Store, absToRel map[string]string) domain.ItemResult {
+func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan, reg provider.Registry, metaClient, imageClient *http.Client, store cache.Store, absToRel map[string]string, deps runDeps) domain.ItemResult {
+	deps = deps.withDefaults()
 	item := domain.ItemResult{
 		Code:              string(p.Code),
 		ProviderRequested: p.ProviderRequested,
@@ -310,7 +349,7 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 
 	// dry-run：只做 fetch+parse 验证；不落盘、不下载图片、不移动。
 	if !eff.Apply {
-		if p.Need.NeedScrape {
+		if p.Need.NeedsScrape() {
 			meta, used, website, html, attempts, err := scrape(ctx, store, reg, p.ProviderRequested, p.Code, metaClient, false)
 			_ = meta
 			_ = html
@@ -329,7 +368,7 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 	var meta domain.MovieMeta
 	var used, website string
 	var html []byte
-	if p.Need.NeedScrape {
+	if p.Need.NeedsScrape() {
 		m, u, w, h, attempts, err := scrape(ctx, store, reg, p.ProviderRequested, p.Code, metaClient, true)
 		item.Attempts = attempts
 		if err != nil {
@@ -400,7 +439,7 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 			failAllFiles(&item)
 			return item
 		}
-		b, err := download(ctx, imageClient, meta.FanartURL, meta.Website)
+		b, err := download(ctx, imageClient, meta.FanartURL, imageRequestConfigurer(reg, used, meta))
 		if err != nil {
 			item.Status = domain.StatusFailed
 			item.ErrorCode = domain.ErrCodeFetchFailed
@@ -475,14 +514,14 @@ func execOne(ctx context.Context, eff config.EffectiveConfig, p domain.ItemPlan,
 	moved := make([]domain.MovePlan, 0, len(p.Moves))
 	for i := range p.Moves {
 		mv := p.Moves[i]
-		if err := fsx.Rename(mv.SrcAbs, mv.DstAbs); err != nil {
+		if err := deps.rename(mv.SrcAbs, mv.DstAbs); err != nil {
 			item.Status = domain.StatusFailed
 			item.ErrorCode = domain.ErrCodeMoveFailed
 			item.ErrorMsg = err.Error()
 
 			// 失败文件标记 failed；之前成功的尝试回滚。
 			item.Files[i].Status = domain.FileStatusFailed
-			rollbackMoves(&item, moved)
+			rollbackMoves(&item, moved, deps.rename)
 			return item
 		}
 
@@ -528,11 +567,11 @@ func failAllFiles(item *domain.ItemResult) {
 	}
 }
 
-func rollbackMoves(item *domain.ItemResult, moved []domain.MovePlan) {
+func rollbackMoves(item *domain.ItemResult, moved []domain.MovePlan, rename func(src, dst string) error) {
 	// 回滚顺序：倒序（更符合栈语义）。
 	for i := len(moved) - 1; i >= 0; i-- {
 		mv := moved[i]
-		if err := fsx.Rename(mv.DstAbs, mv.SrcAbs); err == nil {
+		if err := rename(mv.DstAbs, mv.SrcAbs); err == nil {
 			// moved[i] 对应 p.Moves[i]，file 结果顺序一致。
 			item.Files[i].Status = domain.FileStatusRolledBack
 		} else {
@@ -553,203 +592,6 @@ func ensureDir(dir string) error {
 		return err
 	}
 	return os.MkdirAll(dir, 0o755)
-}
-
-func download(ctx context.Context, c *http.Client, u string, referer string) ([]byte, error) {
-	if c == nil {
-		return nil, errors.New("image client 为空")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// JavBus 的图片通常要求：
-	// - Referer 为详情页
-	// - Cookie 含 age=verified
-	//
-	// 这里把策略集中在下载层，避免让 provider/核心流程到处散落“站点特例”。
-	if isJavbusURL(u) {
-		if strings.TrimSpace(referer) != "" {
-			req.Header.Set("Referer", referer)
-		}
-		req.Header.Set("Cookie", "age=verified")
-	}
-
-	resp, err := c.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-func isJavbusURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(strings.TrimSpace(u.Host))
-	return host == "javbus.com" || strings.HasSuffix(host, ".javbus.com")
-}
-
-func scrape(ctx context.Context, store cache.Store, reg provider.Registry, providerRequested string, code domain.Code, c *http.Client, allowWrite bool) (domain.MovieMeta, string, string, []byte, []domain.ProviderAttempt, error) {
-	// 先尝试 cache（只读），命中则不再打网络。
-	if b, ok, err := store.ReadProviderJSON(providerRequested, code); err == nil && ok {
-		var meta domain.MovieMeta
-		if e := json.Unmarshal(b, &meta); e == nil {
-			return meta, providerRequested, meta.Website, nil, []domain.ProviderAttempt{{
-				Provider:  providerRequested,
-				Stage:     "ok",
-				ErrorCode: "",
-				ErrorMsg:  "",
-			}}, nil
-		}
-		// 坏缓存：忽略，走网络（apply 会写回新缓存；dry-run 只验证）。
-	}
-
-	meta, used, website, html, trace, err := provider.FetchParseTrace(ctx, reg, providerRequested, code, c)
-	if err != nil {
-		return domain.MovieMeta{}, "", "", nil, attemptsFromTrace(trace), err
-	}
-
-	// apply：写缓存（HTML + JSON）。dry-run 禁止写入。
-	if allowWrite && !store.ReadOnly {
-		_ = store.WriteProviderHTML(used, code, html)
-		if b, e := json.Marshal(meta); e == nil {
-			_ = store.WriteProviderJSON(used, code, b)
-		}
-	}
-	return meta, used, website, html, attemptsFromTrace(trace), nil
-}
-
-func attemptsFromTrace(trace []provider.Attempt) []domain.ProviderAttempt {
-	if len(trace) == 0 {
-		return []domain.ProviderAttempt{}
-	}
-	out := make([]domain.ProviderAttempt, 0, len(trace))
-	for _, a := range trace {
-		at := domain.ProviderAttempt{
-			Provider:  a.Provider,
-			Stage:     a.Stage,
-			ErrorCode: "",
-			ErrorMsg:  "",
-		}
-		switch a.Stage {
-		case "fetch":
-			at.ErrorCode = domain.ErrCodeFetchFailed
-			at.ErrorMsg = stripProviderPrefix(a.Provider, humanizeFetchError(a.Provider, a.Err))
-		case "parse":
-			at.ErrorCode = domain.ErrCodeParseFailed
-			at.ErrorMsg = stripProviderPrefix(a.Provider, humanizeParseError(a.Provider, a.Err))
-		case "ok":
-			// ok
-		default:
-			// 兜底：未知阶段也保留错误信息，避免“无痕失败”。
-			if a.Err != nil {
-				at.ErrorCode = domain.ErrCodeFetchFailed
-				at.ErrorMsg = a.Err.Error()
-			}
-		}
-		out = append(out, at)
-	}
-	return out
-}
-
-func stripProviderPrefix(providerName, msg string) string {
-	msg = strings.TrimSpace(msg)
-	p := strings.TrimSpace(providerName)
-	if p == "" || msg == "" {
-		return msg
-	}
-	prefix := p + " "
-	if strings.HasPrefix(msg, prefix) {
-		return strings.TrimSpace(strings.TrimPrefix(msg, prefix))
-	}
-	return msg
-}
-
-func fillProviderError(item *domain.ItemResult, err error) {
-	item.Status = domain.StatusFailed
-
-	var pe *provider.Error
-	if errors.As(err, &pe) {
-		switch pe.Stage {
-		case "fetch":
-			item.ErrorCode = domain.ErrCodeFetchFailed
-			item.ErrorMsg = humanizeFetchError(pe.Provider, pe.Err)
-		case "parse":
-			item.ErrorCode = domain.ErrCodeParseFailed
-			item.ErrorMsg = humanizeParseError(pe.Provider, pe.Err)
-		default:
-			item.ErrorCode = domain.ErrCodeFetchFailed
-			item.ErrorMsg = fmt.Sprintf("%s 失败：%v", pe.Provider, pe.Err)
-		}
-		return
-	}
-
-	item.ErrorCode = domain.ErrCodeFetchFailed
-	item.ErrorMsg = err.Error()
-}
-
-func humanizeFetchError(providerName string, err error) string {
-	if err == nil {
-		return providerName + " 抓取失败"
-	}
-
-	var be *provider.BlockedError
-	if errors.As(err, &be) {
-		switch be.Reason {
-		case "driver-verify":
-			return fmt.Sprintf("%s 被站点引导到验证页（driver-verify）。当前不支持绕过；建议配置 proxy.url 代理池或改用另一 provider。", providerName)
-		default:
-			return fmt.Sprintf("%s 被站点拦截（%s）。建议配置 proxy.url 或稍后重试。", providerName, be.Reason)
-		}
-	}
-
-	// HTTP 非 2xx：尽量给出可操作提示（反爬/限流/验证跳转是最常见问题）。
-	var hs *provider.HTTPStatusError
-	if errors.As(err, &hs) {
-		loc := strings.TrimSpace(hs.Location)
-		if hs.StatusCode >= 300 && hs.StatusCode < 400 && strings.Contains(loc, "driver-verify") {
-			return fmt.Sprintf("%s 被站点跳转到验证页（driver-verify）。当前不支持绕过；建议配置 proxy.url 代理池或改用另一 provider。", providerName)
-		}
-		switch hs.StatusCode {
-		case 403, 429:
-			return fmt.Sprintf("%s 返回 HTTP %d（可能触发反爬/限流）。建议降低并发或配置 proxy.url。", providerName, hs.StatusCode)
-		case 404:
-			return fmt.Sprintf("%s 返回 HTTP 404（可能该 CODE 不存在/已下架）。", providerName)
-		default:
-			if loc != "" {
-				return fmt.Sprintf("%s 返回 HTTP %d（重定向）：%s", providerName, hs.StatusCode, loc)
-			}
-			return fmt.Sprintf("%s 返回 HTTP %d。", providerName, hs.StatusCode)
-		}
-	}
-
-	low := strings.ToLower(err.Error())
-	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(low, "timeout") {
-		return fmt.Sprintf("%s 抓取超时。建议检查网络/代理，或降低并发后重试。", providerName)
-	}
-	if strings.Contains(low, "tls") || strings.Contains(low, "handshake") || strings.Contains(low, "ssl") {
-		if providerName == "javdb" {
-			return "javdb 连接失败（TLS/SSL 握手异常或域名不可达）。可在 avmc.json 设置 javdb_base_url 指向可用域名，或配置 proxy.url。"
-		}
-		return fmt.Sprintf("%s 连接失败（TLS/SSL）。建议配置 proxy.url 或稍后重试。", providerName)
-	}
-
-	return fmt.Sprintf("%s 抓取失败：%v", providerName, err)
-}
-
-func humanizeParseError(providerName string, err error) string {
-	if err == nil {
-		return providerName + " 解析失败"
-	}
-	// 解析失败通常意味着站点结构漂移或被返回了非预期页面（例如验证页/空内容）。
-	return fmt.Sprintf("%s 解析失败（站点结构可能变化或返回了非详情页内容）：%v", providerName, err)
 }
 
 func stringsTrim(s string) string { return strings.TrimSpace(s) }

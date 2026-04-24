@@ -7,10 +7,13 @@ type MovePlan struct {
 }
 
 type SidecarNeed struct {
-	NeedScrape bool
 	NeedNFO    bool
 	NeedPoster bool
 	NeedFanart bool
+}
+
+func (n SidecarNeed) NeedsScrape() bool {
+	return n.NeedNFO || n.NeedFanart
 }
 
 // ItemPlan 是对某个 CODE 的最小执行计划。

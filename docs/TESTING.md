@@ -46,7 +46,7 @@ fixture 与 golden 目录：
 当前仓库已经覆盖的端到端/集成行为包括：
 
 - dry-run 不创建 `out/` 与 `cache/`
-- dry-run 在 `NeedScrape=true` 时验证 provider，并生成 `planned` 的 `files[]`
+- dry-run 在 `NeedsScrape()=true` 时验证 provider，并生成 `planned` 的 `files[]`
 - apply 生成 `NFO + poster + fanart`
 - poster 由 fanart 右半边裁切生成
 - apply 写出 provider HTML / JSON cache

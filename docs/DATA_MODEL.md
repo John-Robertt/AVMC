@@ -79,11 +79,12 @@ type MovePlan struct {
 }
 
 type SidecarNeed struct {
-  NeedScrape bool
   NeedNFO    bool
   NeedPoster bool
   NeedFanart bool
 }
+
+func (n SidecarNeed) NeedsScrape() bool
 
 type ItemPlan struct {
   Code              Code
@@ -96,7 +97,7 @@ type ItemPlan struct {
 不变量：
 
 - `Moves` 只是计划，不代表已经执行。
-- `NeedScrape` 当前等于 `NeedNFO || NeedFanart`。
+- `NeedsScrape()` 当前等于 `NeedNFO || NeedFanart`。
 - `Moves` 的执行前提是抓取与 sidecar 阶段顺利完成。
 
 ## 4. 元数据模型
@@ -139,5 +140,6 @@ type MovieMeta struct {
 
 1. 移动永远最后一步。
 2. sidecar 原子写且不覆盖已有文件。
-3. 扫描固定排除 `<path>/out/` 与 `<path>/cache/`。
-4. 重复运行应保持幂等：已完整条目跳过，不完整条目只补缺失项。
+3. sidecar 只有普通文件才算已满足；目录、符号链接或其它非普通文件视为 `target_conflict`。
+4. 扫描固定排除 `<path>/out/` 与 `<path>/cache/`。
+5. 重复运行应保持幂等：已完整条目跳过，不完整条目只补缺失项。

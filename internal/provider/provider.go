@@ -18,3 +18,9 @@ type Provider interface {
 	Fetch(ctx context.Context, code domain.Code, c *http.Client) (html []byte, pageURL string, err error)
 	Parse(code domain.Code, html []byte, pageURL string) (domain.MovieMeta, error)
 }
+
+// ImageRequestPreparer 是 provider 的可选能力，用于声明图片下载请求需要的站点级 header。
+// 执行层只负责创建请求和下载字节，不内置具体站点判断。
+type ImageRequestPreparer interface {
+	PrepareImageRequest(req *http.Request, meta domain.MovieMeta)
+}

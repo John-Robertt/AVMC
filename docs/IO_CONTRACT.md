@@ -54,7 +54,7 @@
 
 ### 3.1 不覆盖
 
-- `<CODE>.nfo`、`poster.jpg`、`fanart.jpg` 若已存在，视为已满足，本次跳过写入。
+- `<CODE>.nfo`、`poster.jpg`、`fanart.jpg` 若以普通文件形式存在，视为已满足，本次跳过写入。
 - 若目标路径是目录或其它非普通文件，记为 `target_conflict`。
 
 ### 3.2 原子写

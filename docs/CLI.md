@@ -28,7 +28,7 @@ avmc run /data/videos
 行为：
 
 - 做扫描、提取、分组、规划。
-- 仅在 `NeedScrape=true` 时验证 provider 可用性。
+- 仅在 `NeedsScrape()=true` 时验证 provider 可用性。
 - 不写 `out/`、不写 `cache/`、不下载图片、不移动视频。
 
 ### 2.2 apply

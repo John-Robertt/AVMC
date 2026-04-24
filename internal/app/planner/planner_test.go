@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,8 +56,97 @@ func TestPlanItem_NoScrapeWhenSidecarsComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("不期望错误：%v", err)
 	}
-	if plan.Need.NeedScrape {
-		t.Fatalf("期望 NeedScrape=false，实际=%+v", plan.Need)
+	if plan.Need.NeedsScrape() {
+		t.Fatalf("期望 NeedsScrape()=false，实际=%+v", plan.Need)
+	}
+}
+
+func TestPlanItem_SidecarDirectoryConflict(t *testing.T) {
+	root := t.TempDir()
+	code, _ := domain.ParseCode("CAWD-895")
+
+	outDir := filepath.Join(root, "out", string(code))
+	if err := os.MkdirAll(filepath.Join(outDir, "poster.jpg"), 0o755); err != nil {
+		t.Fatalf("创建冲突目录失败：%v", err)
+	}
+
+	st, err := ReadOutState(root, code)
+	if err != nil {
+		t.Fatalf("不期望错误：%v", err)
+	}
+	if st.HasPoster {
+		t.Fatalf("poster.jpg 是目录时不应视为已满足：%+v", st)
+	}
+	if len(st.SidecarConflicts) != 1 {
+		t.Fatalf("期望 1 个 sidecar conflict，实际=%+v", st.SidecarConflicts)
+	}
+
+	files := []domain.VideoFile{
+		{AbsPath: filepath.Join(root, "in", "CAWD-895.mp4"), RelPath: "in/CAWD-895.mp4", Base: "CAWD-895", Ext: ".mp4"},
+	}
+	item := domain.WorkItem{Code: code, FileIdx: []int{0}}
+
+	_, err = PlanItem("javbus", files, item, st)
+	var conflict *SidecarConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("期望 SidecarConflictError，实际=%v", err)
+	}
+}
+
+func TestReadOutState_OutRootFileConflict(t *testing.T) {
+	root := t.TempDir()
+	code, _ := domain.ParseCode("CAWD-895")
+
+	write(t, filepath.Join(root, "out"))
+
+	_, err := ReadOutState(root, code)
+	if !IsTargetConflict(err) {
+		t.Fatalf("期望 target conflict，实际=%v", err)
+	}
+}
+
+func TestReadOutState_OutCodeFileConflict(t *testing.T) {
+	root := t.TempDir()
+	code, _ := domain.ParseCode("CAWD-895")
+
+	write(t, filepath.Join(root, "out", string(code)))
+
+	_, err := ReadOutState(root, code)
+	if !IsTargetConflict(err) {
+		t.Fatalf("期望 target conflict，实际=%v", err)
+	}
+}
+
+func TestPlanItem_SidecarSymlinkConflict(t *testing.T) {
+	root := t.TempDir()
+	code, _ := domain.ParseCode("CAWD-895")
+
+	outDir := filepath.Join(root, "out", string(code))
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("创建目录失败：%v", err)
+	}
+	target := filepath.Join(root, "target.jpg")
+	write(t, target)
+	if err := os.Symlink(target, filepath.Join(outDir, "poster.jpg")); err != nil {
+		t.Skipf("当前环境不支持 symlink：%v", err)
+	}
+
+	st, err := ReadOutState(root, code)
+	if err != nil {
+		t.Fatalf("不期望错误：%v", err)
+	}
+	if len(st.SidecarConflicts) != 1 || st.SidecarConflicts[0].Got != "symlink" {
+		t.Fatalf("期望 symlink sidecar conflict，实际=%+v", st.SidecarConflicts)
+	}
+
+	files := []domain.VideoFile{
+		{AbsPath: filepath.Join(root, "in", "CAWD-895.mp4"), RelPath: "in/CAWD-895.mp4", Base: "CAWD-895", Ext: ".mp4"},
+	}
+	item := domain.WorkItem{Code: code, FileIdx: []int{0}}
+
+	_, err = PlanItem("javbus", files, item, st)
+	if !IsTargetConflict(err) {
+		t.Fatalf("期望 target conflict，实际=%v", err)
 	}
 }
 

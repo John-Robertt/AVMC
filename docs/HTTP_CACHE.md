@@ -75,10 +75,10 @@
 - 每次尝试记录 `Attempt{Provider, Stage, Err}`
 - `Stage` 枚举为 `fetch`、`parse`、`ok`
 
-## 8. 当前已实现的站点特例
+## 8. 当前已实现的站点图片请求策略
 
-- JavBus 图片下载时，若图片 URL 属于 `javbus.com`，下载请求会附加：
+- JavBus 图片下载时，下载请求会附加：
   - `Referer: <详情页>`（若详情页 URL 非空）
   - `Cookie: age=verified`
 
-该逻辑当前位于执行层下载函数 `internal/app/run.download`，而不在 provider 包或 `httpx` 中。
+该策略由 provider 的可选图片请求接口提供；执行层只负责创建请求、应用 provider 策略并下载图片，不再内置 JavBus 域名判断。

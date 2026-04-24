@@ -3,6 +3,7 @@ package javbus
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,22 @@ import (
 
 	"github.com/John-Robertt/AVMC/internal/domain"
 )
+
+func TestPrepareImageRequest_AddsJavBusHeaders(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://www.javbus.com/pic.jpg", nil)
+	if err != nil {
+		t.Fatalf("创建请求失败：%v", err)
+	}
+
+	Provider{}.PrepareImageRequest(req, domain.MovieMeta{Website: "https://www.javbus.com/CAWD-895"})
+
+	if req.Header.Get("Referer") != "https://www.javbus.com/CAWD-895" {
+		t.Fatalf("Referer 不符合预期：%q", req.Header.Get("Referer"))
+	}
+	if req.Header.Get("Cookie") != "age=verified" {
+		t.Fatalf("Cookie 不符合预期：%q", req.Header.Get("Cookie"))
+	}
+}
 
 func TestParse_Golden(t *testing.T) {
 	entries, err := os.ReadDir("testdata")

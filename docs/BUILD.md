@@ -28,7 +28,7 @@
   - `darwin/arm64`
   - `windows/amd64`
   - `windows/arm64`
-- 构建命令：`go build -trimpath -ldflags "-s -w" -o dist/... ./cmd/avmc`
+- 构建命令：`CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "dist/avmc_<VERSION>_<GOOS>_<GOARCH>[.exe]" ./cmd/avmc`
 - 产物：
   - Linux / macOS：`avmc_<VERSION>_<GOOS>_<GOARCH>.tar.gz`
   - Windows：`avmc_<VERSION>_<GOOS>_<GOARCH>.zip`
@@ -53,7 +53,14 @@
   - 合并生成总校验和 `SHA256SUMS.txt`
   - 使用 `gh release create/upload` 创建或更新 GitHub Release
 
-## 3. 使用当前镜像
+## 3. Dockerfile
+
+仓库根目录的 `Dockerfile` 用于 `ghcr` 作业的多架构构建：
+
+- 构建阶段：`golang:1.22-alpine`，`CGO_ENABLED=0`，通过 buildx 注入 `TARGETOS` / `TARGETARCH`
+- 运行阶段：`alpine:3.19`，仅包含 `ca-certificates` 和编译后的 `avmc` 二进制
+
+## 4. 使用当前镜像
 
 ```bash
 docker run --rm ghcr.io/john-robertt/avmc:latest --help

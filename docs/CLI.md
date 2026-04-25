@@ -55,8 +55,8 @@ avmc run /data/videos --provider javdb
 
 ### 3.1 report 输出
 
-- 若 `stdout` 不是 TTY：`stdout` 必须且仅输出一个 `RunReport` JSON。
-- 若 `stdout` 是 TTY：`stdout` 输出一行人类摘要。
+- 若 `stdout` 是 TTY：`stdout` 输出一行人类摘要；存在 `failed` 或 `unmatched` 条目时，逐条错误详情写到 `stderr`。
+- 若 `stdout` 不是 TTY：`stdout` 必须且仅输出一个 `RunReport` JSON；人类摘要写到 `stderr`。
 
 ### 3.2 进度输出
 

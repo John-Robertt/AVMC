@@ -9,6 +9,8 @@
 当前行为：
 
 - 默认总超时：`20s`
+- `TLSHandshakeTimeout`：`10s`
+- `ResponseHeaderTimeout`：`15s`
 - 默认最大重试次数：`2`（含首次请求时最多尝试 3 次）
 - `GET` / `HEAD` 且 body 为空的请求进入重试路径
 - transport 直接返回的网络错误进入重试路径；HTTP 3xx/4xx/5xx 响应交由上层按状态码处理

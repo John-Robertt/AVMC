@@ -64,11 +64,18 @@ type OutState struct {
   HasNFO    bool
   HasPoster bool
   HasFanart bool
-  ExistingNames map[string]struct{}
+  ExistingNames    map[string]struct{}
+  SidecarConflicts []SidecarConflict
+}
+
+type SidecarConflict struct {
+  Name string
+  Path string
+  Got  string
 }
 ```
 
-含义：描述 `out/<CODE>/` 的现状；只做 `stat` / `ReadDir`，不读文件内容。
+含义：描述 `out/<CODE>/` 的现状；只做 `stat` / `ReadDir`，不读文件内容。`SidecarConflicts` 记录 sidecar 路径存在但不是普通文件的冲突（如目录或符号链接），规划阶段据此标记 `target_conflict`。
 
 ### 3.2 `MovePlan` / `SidecarNeed` / `ItemPlan`
 

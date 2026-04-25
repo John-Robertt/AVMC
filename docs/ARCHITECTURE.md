@@ -90,11 +90,14 @@ cmd/avmc/main.go
 cmd/avmc
   -> internal/config
   -> internal/app/run
+  -> internal/domain
+  -> internal/infra/fsx          // report.json 原子写
   -> internal/provider/*
 
 internal/app/run
   -> internal/app
   -> internal/app/planner
+  -> internal/config             // 消费 EffectiveConfig 类型
   -> internal/scan
   -> internal/provider
   -> internal/nfo

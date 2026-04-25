@@ -16,6 +16,7 @@
 | `internal/infra/cache/cache_test.go` | provider cache 读写、只读模式拒绝写入 |
 | `internal/infra/imgx/imgx_test.go` | poster 从 fanart 右半边裁切 |
 | `internal/provider/scrape_test.go` | requested -> fallback 逻辑、尝试链路记录、未知 provider |
+| `internal/app/run/scrape_test.go` | cache 读取、网络抓取、apply 时 cache 写入 |
 | `internal/provider/javbus/javbus_test.go` | JavBus fixture/golden 解析 |
 | `internal/provider/javdb/javdb_test.go` | JavDB 搜索结果匹配、fixture/golden 解析 |
 | `internal/nfo/nfo_test.go` | NFO XML 可解析、列表去重稳定、标题回退到 CODE |

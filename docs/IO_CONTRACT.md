@@ -63,9 +63,11 @@
 
 1. 在目标目录创建临时文件，文件名形如 `.<name>.tmp-*`
 2. 写入内容
-3. `tmp.Sync()`
-4. `Rename(tmp, dst)`
-5. 对目录做 best-effort `Sync()`
+3. `tmp.Chmod(0o644)`
+4. `tmp.Sync()`
+5. `tmp.Close()`
+6. `Rename(tmp, dst)`
+7. 对目录做 best-effort `Sync()`
 
 当前语义区分：
 

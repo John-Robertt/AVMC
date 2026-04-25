@@ -74,6 +74,8 @@ internal/provider/javdb/golden/*.json
 
 - 不能直接拼详情页，必须先访问 `search?q=<CODE>&f=all`。
 - 只接受搜索结果中 `strong == <CODE>` 的条目。
+- `Parse` 必须先确认存在 `nav.movie-panel-info`，再从详情字段的”番號”/”番号”/”ID”/”Code”提取页面识别码并与传入 `Code` 一致；缺失或不一致视为解析失败。
+- 登录页、年龄确认页或其它非详情页不得返回成功的 `MovieMeta`；缺失详情信息区或标题为空时必须返回解析错误，以便上层进入降级链路。
 - 标题优先取 `h2.title span.origin-title`，不存在时退回 `h2.title strong.current-title`。
 - 详情字段从 `nav.movie-panel-info .panel-block` 中按 `<strong>` 标签文本匹配：
   - 发行日期：”日期”/”Date”

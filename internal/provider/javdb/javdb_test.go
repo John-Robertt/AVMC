@@ -30,6 +30,51 @@ func TestFindDetailHref_FromSearchFixture(t *testing.T) {
 	}
 }
 
+func TestParse_RejectsLoginPage(t *testing.T) {
+	code, _ := domain.ParseCode("HEYZO-3831")
+	html, err := os.ReadFile(filepath.Join("..", "..", "..", "test", "provider_pressure", "clean", "javdb", "details", "HEYZO-3831.html"))
+	if err != nil {
+		t.Fatalf("读取登录页样本失败：%v", err)
+	}
+
+	_, err = Provider{}.Parse(code, html, "https://javdb.com/v/7ybBPd")
+	if err == nil {
+		t.Fatalf("期望登录页解析失败，实际成功")
+	}
+}
+
+func TestParse_RejectsCodeMismatch(t *testing.T) {
+	code, _ := domain.ParseCode("KUM-013")
+	html, err := os.ReadFile(filepath.Join("testdata", "SNOS-052.html"))
+	if err != nil {
+		t.Fatalf("读取 fixture 失败：%v", err)
+	}
+
+	_, err = Provider{}.Parse(code, html, "https://javdb.com/v/ve39eW")
+	if err == nil {
+		t.Fatalf("期望番號不匹配时解析失败，实际成功")
+	}
+}
+
+func TestParse_AllowsNARuntimeOnDetailPage(t *testing.T) {
+	code, _ := domain.ParseCode("NHDTC-172")
+	html, err := os.ReadFile(filepath.Join("..", "..", "..", "test", "provider_pressure", "clean", "javdb", "details", "NHDTC-172.html"))
+	if err != nil {
+		t.Fatalf("读取 N/A 时长详情页样本失败：%v", err)
+	}
+
+	meta, err := Provider{}.Parse(code, html, "https://javdb.com/v/82ZONd")
+	if err != nil {
+		t.Fatalf("Parse 失败：%v", err)
+	}
+	if meta.RuntimeM != 0 {
+		t.Fatalf("N/A 时长期望 RuntimeM=0，实际=%d", meta.RuntimeM)
+	}
+	if meta.Title == "" {
+		t.Fatalf("真实详情页不应解析出空标题")
+	}
+}
+
 func TestParse_Golden(t *testing.T) {
 	entries, err := os.ReadDir("testdata")
 	if err != nil {

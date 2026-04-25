@@ -84,6 +84,18 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 		return domain.MovieMeta{}, err
 	}
 
+	info := doc.Find("nav.movie-panel-info").First()
+	if info.Length() == 0 {
+		return domain.MovieMeta{}, errors.New("未找到详情信息区（疑似返回了登录页/非详情页内容）")
+	}
+	pageCode := normalizeCodeText(findPanelValueAny(info, []string{"番號", "番号", "ID", "Code"}))
+	if pageCode == "" {
+		return domain.MovieMeta{}, errors.New("未找到番號（疑似返回了登录页/非详情页内容）")
+	}
+	if !strings.EqualFold(pageCode, string(code)) {
+		return domain.MovieMeta{}, errors.New("番號不匹配（疑似搜索结果/详情页返回了其它影片）")
+	}
+
 	// JavDB 的标题有时会显示中文翻译（current-title），同时提供隐藏的 origin-title。
 	// 需求：优先使用“原标题”（origin-title），不存在时回退 current-title。
 	//
@@ -91,6 +103,9 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 	title := normSpace(strings.TrimSpace(doc.Find("h2.title span.origin-title").First().Text()))
 	if title == "" {
 		title = normSpace(strings.TrimSpace(doc.Find("h2.title strong.current-title").First().Text()))
+	}
+	if title == "" {
+		return domain.MovieMeta{}, errors.New("标题为空（疑似返回了登录页/非详情页内容）")
 	}
 
 	var (
@@ -102,7 +117,7 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 		tags     []string
 	)
 
-	doc.Find("nav.movie-panel-info .panel-block").Each(func(_ int, s *goquery.Selection) {
+	info.Find(".panel-block").Each(func(_ int, s *goquery.Selection) {
 		h := normHeader(s.Find("strong").First().Text())
 		switch h {
 		case "日期", "Date":
@@ -159,6 +174,49 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 		FanartURL: fanartURL,
 	}
 	return meta, nil
+}
+
+func findPanelValueAny(info *goquery.Selection, headers []string) string {
+	if info == nil {
+		return ""
+	}
+	set := make(map[string]struct{}, len(headers))
+	for _, h := range headers {
+		h = normHeader(h)
+		if h == "" {
+			continue
+		}
+		set[h] = struct{}{}
+	}
+	if len(set) == 0 {
+		return ""
+	}
+
+	var out string
+	info.Find(".panel-block").EachWithBreak(func(_ int, s *goquery.Selection) bool {
+		h := normHeader(s.Find("strong").First().Text())
+		if _, ok := set[h]; !ok {
+			return true
+		}
+		out = strings.TrimSpace(s.Find("span.value").First().Text())
+		return false
+	})
+	return out
+}
+
+func normalizeCodeText(s string) string {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\u00a0' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func findDetailHref(searchHTML []byte, code domain.Code) (string, error) {

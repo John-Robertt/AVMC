@@ -30,11 +30,25 @@ func TestExtract_AmbiguousInFilename(t *testing.T) {
 	_, err := Extract(v)
 
 	var ue *UnmatchedError
-	if !errors.As(err, &ue) || ue.Kind != "ambiguous" {
+	if !errors.As(err, &ue) || ue.Kind != domain.UnmatchedAmbiguous {
 		t.Fatalf("期望 ambiguous，实际 err=%v", err)
 	}
 	if len(ue.Candidates) != 2 {
 		t.Fatalf("期望 2 个候选，实际 %d", len(ue.Candidates))
+	}
+}
+
+func TestExtract_SameCodeInFileAndDir(t *testing.T) {
+	v := domain.VideoFile{
+		AbsPath: filepath.Join(string(filepath.Separator), "tmp", "CAWD-895", "CAWD-895.mp4"),
+		Base:    "CAWD-895",
+	}
+	got, err := Extract(v)
+	if err != nil {
+		t.Fatalf("不期望错误：%v", err)
+	}
+	if string(got) != "CAWD-895" {
+		t.Fatalf("期望 CAWD-895，实际 %q", got)
 	}
 }
 
@@ -46,7 +60,7 @@ func TestExtract_AmbiguousBetweenFileAndDir(t *testing.T) {
 	_, err := Extract(v)
 
 	var ue *UnmatchedError
-	if !errors.As(err, &ue) || ue.Kind != "ambiguous" {
+	if !errors.As(err, &ue) || ue.Kind != domain.UnmatchedAmbiguous {
 		t.Fatalf("期望 ambiguous，实际 err=%v", err)
 	}
 }
@@ -59,7 +73,7 @@ func TestExtract_NoMatch(t *testing.T) {
 	_, err := Extract(v)
 
 	var ue *UnmatchedError
-	if !errors.As(err, &ue) || ue.Kind != "no_match" {
+	if !errors.As(err, &ue) || ue.Kind != domain.UnmatchedNoMatch {
 		t.Fatalf("期望 no_match，实际 err=%v", err)
 	}
 }

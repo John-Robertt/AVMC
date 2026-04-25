@@ -275,7 +275,7 @@ func unmatchedItem(u domain.Unmatched) domain.ItemResult {
 	}
 
 	switch u.Kind {
-	case "ambiguous":
+	case domain.UnmatchedAmbiguous:
 		item.Candidates = make([]string, 0, len(u.Candidates))
 		for _, c := range u.Candidates {
 			item.Candidates = append(item.Candidates, string(c))

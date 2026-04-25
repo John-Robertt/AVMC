@@ -19,6 +19,6 @@ type MovieMeta struct {
 	Tags   []string
 
 	Website   string
-	CoverURL  string
-	FanartURL string
+	CoverURL  string // 写入 NFO <cover> 和 cache JSON；执行层不直接消费
+	FanartURL string // 执行层用于下载 fanart.jpg；当前两个 provider 均设为与 CoverURL 相同
 }

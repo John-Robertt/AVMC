@@ -2,6 +2,7 @@ package nfo
 
 import (
 	"encoding/xml"
+	"slices"
 	"strings"
 
 	"github.com/John-Robertt/AVMC/internal/domain"
@@ -91,8 +92,8 @@ func Encode(meta domain.MovieMeta) ([]byte, error) {
 		UserRating: 0,
 		Votes:      0,
 
-		Tags:   normList(append(meta.Tags, meta.Actors...)),
-		Genres: normList(append(meta.Genres, meta.Actors...)),
+		Tags:   normList(append(slices.Clone(meta.Tags), meta.Actors...)),
+		Genres: normList(append(slices.Clone(meta.Genres), meta.Actors...)),
 
 		Cover:   strings.TrimSpace(meta.CoverURL),
 		Website: strings.TrimSpace(meta.Website),

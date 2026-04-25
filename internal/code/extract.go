@@ -22,9 +22,9 @@ type UnmatchedError struct {
 
 func (e *UnmatchedError) Error() string {
 	switch e.Kind {
-	case "no_match":
+	case domain.UnmatchedNoMatch:
 		return "无法从文件名或父目录解析出 CODE"
-	case "ambiguous":
+	case domain.UnmatchedAmbiguous:
 		parts := make([]string, 0, len(e.Candidates))
 		for _, c := range e.Candidates {
 			parts = append(parts, string(c))
@@ -46,7 +46,7 @@ func Extract(v domain.VideoFile) (domain.Code, error) {
 	addCandidates(m, parent)
 
 	if len(m) == 0 {
-		return "", &UnmatchedError{Kind: "no_match"}
+		return "", &UnmatchedError{Kind: domain.UnmatchedNoMatch}
 	}
 	if len(m) > 1 {
 		cands := make([]domain.Code, 0, len(m))
@@ -54,12 +54,12 @@ func Extract(v domain.VideoFile) (domain.Code, error) {
 			cands = append(cands, c)
 		}
 		sort.Slice(cands, func(i, j int) bool { return string(cands[i]) < string(cands[j]) })
-		return "", &UnmatchedError{Kind: "ambiguous", Candidates: cands}
+		return "", &UnmatchedError{Kind: domain.UnmatchedAmbiguous, Candidates: cands}
 	}
 	for c := range m {
 		return c, nil
 	}
-	return "", &UnmatchedError{Kind: "no_match"}
+	return "", &UnmatchedError{Kind: domain.UnmatchedNoMatch}
 }
 
 func addCandidates(dst map[domain.Code]struct{}, s string) {

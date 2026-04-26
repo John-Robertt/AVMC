@@ -128,12 +128,25 @@ func TestLoadEffective_ImageProxyRequiresProxyURL(t *testing.T) {
 }
 
 func TestLoadEffective_InvalidProxyURL(t *testing.T) {
-	cwd := t.TempDir()
-	writeFile(t, filepath.Join(cwd, "avmc.json"), []byte(`{"path":"p","proxy":{"url":"http://[::1"}}`))
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "malformed", url: "http://[::1"},
+		{name: "missing scheme and host", url: "proxy"},
+		{name: "unsupported scheme", url: "socks5://127.0.0.1:1080"},
+	}
 
-	_, err := LoadEffective(cwd, CLIArgs{})
-	if Code(err) != ErrCodeInvalid {
-		t.Fatalf("期望 %q，实际 err=%v (code=%q)", ErrCodeInvalid, err, Code(err))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cwd := t.TempDir()
+			writeFile(t, filepath.Join(cwd, "avmc.json"), []byte(`{"path":"p","proxy":{"url":"`+tt.url+`"}}`))
+
+			_, err := LoadEffective(cwd, CLIArgs{})
+			if Code(err) != ErrCodeInvalid {
+				t.Fatalf("期望 %q，实际 err=%v (code=%q)", ErrCodeInvalid, err, Code(err))
+			}
+		})
 	}
 }
 

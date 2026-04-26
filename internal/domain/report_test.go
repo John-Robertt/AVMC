@@ -39,4 +39,26 @@ func TestRunReport_Finalize_SortAndSummaryAndUTC(t *testing.T) {
 	if len(b) == 0 || !bytes.Contains(b, []byte("\"started_at\":\"2026-02-09T02:00:00Z\"")) {
 		t.Fatalf("started_at 不是 UTC RFC3339：%s", string(b))
 	}
+	for _, want := range [][]byte{
+		[]byte(`"attempts":[]`),
+		[]byte(`"candidates":[]`),
+		[]byte(`"files":[]`),
+	} {
+		if !bytes.Contains(b, want) {
+			t.Fatalf("空数组字段未按 [] 输出，缺少 %s：%s", string(want), string(b))
+		}
+	}
+	if bytes.Contains(b, []byte(`null`)) {
+		t.Fatalf("RunReport 不应输出 null 数组字段：%s", string(b))
+	}
+}
+
+func TestRunReport_MarshalJSON_NilItemsAsEmptyArray(t *testing.T) {
+	b, err := json.Marshal(RunReport{})
+	if err != nil {
+		t.Fatalf("json.Marshal 失败：%v", err)
+	}
+	if !bytes.Contains(b, []byte(`"items":[]`)) {
+		t.Fatalf("nil items 应输出为空数组：%s", string(b))
+	}
 }

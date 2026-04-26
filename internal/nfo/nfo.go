@@ -2,14 +2,12 @@ package nfo
 
 import (
 	"encoding/xml"
-	"slices"
 	"strings"
 
 	"github.com/John-Robertt/AVMC/internal/domain"
 )
 
 const (
-	// DefaultCountry / DefaultMPAA 不对外暴露配置；保持最小但够用。
 	DefaultCountry = "JP"
 	DefaultMPAA    = "R18+"
 )
@@ -19,12 +17,12 @@ type movie struct {
 
 	Title     string `xml:"title"`
 	SortTitle string `xml:"sorttitle"`
-	Num       string `xml:"num"`
 
-	Studio string `xml:"studio,omitempty"`
-	Set    string `xml:"set,omitempty"`
+	Studios  []string `xml:"studio,omitempty"`
+	Director string   `xml:"director,omitempty"`
 
-	Release   string `xml:"release,omitempty"`
+	Set *movieSet `xml:"set,omitempty"`
+
 	Premiered string `xml:"premiered,omitempty"`
 	Year      int    `xml:"year,omitempty"`
 	Runtime   int    `xml:"runtime,omitempty"`
@@ -32,51 +30,74 @@ type movie struct {
 	MPAA    string `xml:"mpaa,omitempty"`
 	Country string `xml:"country,omitempty"`
 
-	Poster string `xml:"poster,omitempty"`
-	Thumb  string `xml:"thumb,omitempty"`
-	Fanart string `xml:"fanart,omitempty"`
+	Thumbs []thumb `xml:"thumb,omitempty"`
+	Fanart *fanart `xml:"fanart,omitempty"`
 
-	Rating     int `xml:"rating"`
-	UserRating int `xml:"userrating"`
-	Votes      int `xml:"votes"`
+	Ratings *ratings `xml:"ratings,omitempty"`
 
 	Actors []actor  `xml:"actor,omitempty"`
 	Tags   []string `xml:"tag,omitempty"`
 	Genres []string `xml:"genre,omitempty"`
 
-	Cover   string `xml:"cover,omitempty"`
-	Website string `xml:"website,omitempty"`
+	UniqueIDs []uniqueID `xml:"uniqueid,omitempty"`
+}
+
+type movieSet struct {
+	Name string `xml:"name"`
+}
+
+type thumb struct {
+	Aspect string `xml:"aspect,attr,omitempty"`
+	URL    string `xml:",chardata"`
+}
+
+type fanart struct {
+	Thumbs []thumb `xml:"thumb"`
+}
+
+type ratings struct {
+	Rating []ratingEntry `xml:"rating"`
+}
+
+type ratingEntry struct {
+	Name    string  `xml:"name,attr"`
+	Max     int     `xml:"max,attr"`
+	Default bool    `xml:"default,attr,omitempty"`
+	Value   float64 `xml:"value"`
+	Votes   int     `xml:"votes"`
+}
+
+type uniqueID struct {
+	Type    string `xml:"type,attr"`
+	Default bool   `xml:"default,attr,omitempty"`
+	ID      string `xml:",chardata"`
 }
 
 type actor struct {
-	Name string `xml:"name"`
-	Role string `xml:"role,omitempty"`
+	Name  string `xml:"name"`
+	Role  string `xml:"role,omitempty"`
+	Order int    `xml:"order"`
 }
 
 // Encode 把 MovieMeta 转成 Kodi/Jellyfin/Emby 可读取的 NFO（XML）。
-//
-// 规则：
-// - 字段缺失允许为空；但输出结构尽量稳定（去空白、去重、保持输入顺序）
-// - title 为空时回退到 CODE（避免生成空 title）
 func Encode(meta domain.MovieMeta) ([]byte, error) {
 	code := strings.TrimSpace(string(meta.Code))
 	title := strings.TrimSpace(meta.Title)
 	if title == "" {
 		title = code
 	} else if code != "" && !strings.HasPrefix(title, code) {
-		// 约定：title 以 CODE 开头（更利于媒体库识别与展示）。
 		title = code + " " + title
 	}
+
+	actors := normList(meta.Actors)
 
 	m := movie{
 		Title:     title,
 		SortTitle: code,
-		Num:       code,
 
-		Studio: strings.TrimSpace(meta.Studio),
-		Set:    strings.TrimSpace(meta.Series),
+		Studios:  normList([]string{meta.Studio, meta.Label}),
+		Director: strings.TrimSpace(meta.Director),
 
-		Release:   strings.TrimSpace(meta.Release),
 		Premiered: strings.TrimSpace(meta.Release),
 		Year:      meta.Year,
 		Runtime:   meta.RuntimeM,
@@ -84,26 +105,36 @@ func Encode(meta domain.MovieMeta) ([]byte, error) {
 		MPAA:    DefaultMPAA,
 		Country: DefaultCountry,
 
-		Poster: "poster.jpg",
-		Thumb:  "poster.jpg",
-		Fanart: "fanart.jpg",
-
-		Rating:     0,
-		UserRating: 0,
-		Votes:      0,
-
-		Tags:   normList(append(slices.Clone(meta.Tags), meta.Actors...)),
-		Genres: normList(append(slices.Clone(meta.Genres), meta.Actors...)),
-
-		Cover:   strings.TrimSpace(meta.CoverURL),
-		Website: strings.TrimSpace(meta.Website),
+		Tags:   normList(append(append([]string(nil), meta.Tags...), actors...)),
+		Genres: normList(meta.Genres),
 	}
 
-	actors := normList(meta.Actors)
+	if s := strings.TrimSpace(meta.Series); s != "" {
+		m.Set = &movieSet{Name: s}
+	}
+
+	if w := strings.TrimSpace(meta.Website); w != "" {
+		m.UniqueIDs = append(m.UniqueIDs, uniqueID{Type: "url", ID: w})
+	}
+
+	if c := strings.TrimSpace(meta.CoverURL); c != "" {
+		m.Thumbs = append(m.Thumbs, thumb{Aspect: "poster", URL: c})
+	}
+	if f := strings.TrimSpace(meta.FanartURL); f != "" {
+		m.Fanart = &fanart{Thumbs: []thumb{{URL: f}}}
+	}
+
+	if meta.Rating > 0 || meta.Votes > 0 {
+		m.Ratings = &ratings{Rating: []ratingEntry{{
+			Name: "javdb", Max: 5, Default: true,
+			Value: meta.Rating, Votes: meta.Votes,
+		}}}
+	}
+
 	if len(actors) > 0 {
 		m.Actors = make([]actor, 0, len(actors))
-		for _, a := range actors {
-			m.Actors = append(m.Actors, actor{Name: a, Role: a})
+		for i, a := range actors {
+			m.Actors = append(m.Actors, actor{Name: a, Role: a, Order: i})
 		}
 	}
 
@@ -111,7 +142,6 @@ func Encode(meta domain.MovieMeta) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 约定：输出带 standalone="yes" 的 XML 头，便于与常见刮削器产物兼容。
 	const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>` + "\n"
 	return append([]byte(header), b...), nil
 }

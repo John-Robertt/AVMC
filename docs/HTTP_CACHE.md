@@ -54,13 +54,13 @@
 当前读取流程：
 
 1. 只尝试读取 **requested provider** 的 JSON cache。
-2. 若 JSON 文件存在且能反序列化为 `MovieMeta`，直接返回该结果。
+2. 若 JSON 文件存在且能反序列化为 `MovieMeta`，直接返回该结果；不会重新解析同名 HTML，也不会因 provider parser 规则变更自动刷新。
 3. 若 JSON 文件不存在，或内容损坏无法反序列化，则忽略该 cache，继续访问网络。
 
 ## 6. 当前写入策略
 
 - `dry-run`：cache 以只读方式参与流程。
-- `apply`：抓取成功后，把最终成功 provider 的 HTML 和 JSON 写入其目录。
+- `apply`：抓取成功后，best-effort 把最终成功 provider 的 HTML 和 JSON 写入其目录；写入失败不阻断当前 item。
 - HTML 与 JSON 都通过原子覆盖写入。
 
 - 若 requested provider 失败、fallback provider 成功，则 cache 写入 fallback provider 目录。

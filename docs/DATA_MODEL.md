@@ -115,11 +115,15 @@ type ItemPlan struct {
 type MovieMeta struct {
   Code     Code
   Title    string
-  Studio   string
+  Director string
+  Studio   string   // 製作商 / Maker
+  Label    string   // 發行商 / Label
   Series   string
   Release  string
   Year     int
   RuntimeM int
+  Rating   float64  // 用户评分（满分 5；仅 JavDB 提供）
+  Votes    int      // 评价人数
 
   Actors []string
   Genres []string
@@ -135,6 +139,8 @@ type MovieMeta struct {
 
 - `Website` 必须是最终成功 provider 的详情页 URL。
 - 字段缺失允许为空，但结构保持稳定。
+- `Studio` 对应製作商（Maker），`Label` 对应發行商；NFO 会把两者按顺序输出为可重复 `<studio>`。
+- `Actors` 表示 NFO 输出使用的演员主体列表；provider 可按站点可验证信息清洗明显不适合作为主体演员的条目，例如 JavDB 会过滤明确标记为男性的演员，未标记性别的演员保留。
 - `FanartURL` 用于下载 `fanart.jpg`；`poster.jpg` 由 fanart 裁切生成。
 
 ## 5. 运行报告模型

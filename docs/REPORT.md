@@ -3,9 +3,9 @@
 报告是排障与可恢复性的关键输入：它必须**可读、可机器处理、结构稳定**。
 
 ## 1. 输出位置与输出通道（对外契约）
-- apply：**必须**写入 `<path>/cache/report.json`
-- dry-run：通过 stdout 输出同结构 `RunReport`
-- 当 stdout 非 TTY 时：stdout **必须且仅**输出一个 `RunReport` JSON（dry-run/apply 同结构）
+- apply：成功加载有效配置并进入执行阶段后，**必须**写入 `<path>/cache/report.json`；配置加载失败时尚无有效 `<path>`，只通过输出通道返回合成 `RunReport`。
+- dry-run：不落盘；当 stdout 非 TTY 时通过 stdout 输出同结构 `RunReport`，当 stdout 是 TTY 时按 [CLI.md](./CLI.md) 输出人类摘要。
+- 当 stdout 非 TTY 时：stdout **必须且仅**输出一个 `RunReport` JSON（dry-run/apply 同结构）。
 
 > stdout/stderr 的分工见 [CLI.md](./CLI.md)。
 

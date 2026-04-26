@@ -47,7 +47,7 @@
 
 - 允许写入 `out/`。
 - 允许写入 `cache/`。
-- 固定写 `report.json` 到 `<path>/cache/report.json`。
+- 成功加载有效配置并进入执行阶段后，CLI 固定写 `report.json` 到 `<path>/cache/report.json`。
 - sidecar 满足后允许移动视频。
 
 ## 3. sidecar 写入规则
@@ -55,6 +55,7 @@
 ### 3.1 不覆盖
 
 - `<CODE>.nfo`、`poster.jpg`、`fanart.jpg` 若以普通文件形式存在，视为已满足，本次跳过写入。
+- `<path>/out` 或 `<path>/out/<CODE>` 若已存在但不是目录，记为 `target_conflict`。
 - 若目标路径是目录或其它非普通文件，记为 `target_conflict`。
 
 ### 3.2 原子写
@@ -73,6 +74,8 @@
 
 - sidecar 使用“不覆盖”的原子写。
 - `report.json` 与 provider cache 使用“可覆盖”的原子写。
+- “不覆盖”基于写入前的目标类型检查，不承诺跨进程竞争下的强不覆盖语义。
+- `WriteFileAtomicReplace` 在 Windows 上为 best-effort 原子替换；类 Unix 平台依赖同文件系统内 `rename` 语义。
 
 ## 4. fanart 与 poster
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -111,10 +112,14 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 	var (
 		release  string
 		runtimeM int
+		director string
 		studio   string
+		label    string
 		series   string
 		actors   []string
 		tags     []string
+		rating   float64
+		votes    int
 	)
 
 	info.Find(".panel-block").Each(func(_ int, s *goquery.Selection) {
@@ -124,18 +129,22 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 			release = strings.TrimSpace(s.Find("span.value").First().Text())
 		case "時長", "时长", "Length", "Duration":
 			runtimeM = firstInt(s.Find("span.value").First().Text())
-		case "片商", "Maker", "Studio", "Manufacturer", "Label":
+		case "導演", "导演", "Director":
+			director = strings.TrimSpace(s.Find("span.value a").First().Text())
+		case "片商", "Maker", "Studio", "Manufacturer":
 			studio = strings.TrimSpace(s.Find("span.value a").First().Text())
+		case "發行", "发行", "Publisher", "Label":
+			label = strings.TrimSpace(s.Find("span.value a").First().Text())
 		case "系列", "Series":
 			series = strings.TrimSpace(s.Find("span.value a").First().Text())
 		case "演員", "演员", "Actor", "Actors", "Actress", "Cast":
-			s.Find("span.value a").Each(func(_ int, a *goquery.Selection) {
-				actors = append(actors, strings.TrimSpace(a.Text()))
-			})
+			actors = append(actors, actorNamesFromPanel(s)...)
 		case "類別", "类别", "Tag", "Tags", "Genre", "Genres", "Category", "Categories":
 			s.Find("span.value a").Each(func(_ int, a *goquery.Selection) {
 				tags = append(tags, strings.TrimSpace(a.Text()))
 			})
+		case "評分", "评分", "Rating", "Score":
+			rating, votes = parseRatingText(s.Find("span.value").First().Text())
 		}
 	})
 
@@ -158,19 +167,22 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 	year := yearFromRelease(release)
 
 	meta := domain.MovieMeta{
-		Code:     code,
-		Title:    title,
-		Studio:   studio,
-		Series:   series,
-		Release:  release,
-		Year:     year,
-		RuntimeM: runtimeM,
-		Actors:   actors,
-		Genres:   tags,
-		Tags:     tags,
-		Website:  strings.TrimSpace(pageURL),
-		CoverURL: coverURL,
-		// 若无单独背景图，则回退为 cover（避免 apply 因 fanart 缺失而失败）。
+		Code:      code,
+		Title:     title,
+		Director:  director,
+		Studio:    studio,
+		Label:     label,
+		Series:    series,
+		Release:   release,
+		Year:      year,
+		RuntimeM:  runtimeM,
+		Rating:    rating,
+		Votes:     votes,
+		Actors:    actors,
+		Genres:    tags,
+		Tags:      tags,
+		Website:   strings.TrimSpace(pageURL),
+		CoverURL:  coverURL,
 		FanartURL: fanartURL,
 	}
 	return meta, nil
@@ -202,6 +214,41 @@ func findPanelValueAny(info *goquery.Selection, headers []string) string {
 		return false
 	})
 	return out
+}
+
+func actorNamesFromPanel(s *goquery.Selection) []string {
+	if s == nil {
+		return nil
+	}
+	actors := make([]string, 0, 4)
+	s.Find("span.value a").Each(func(_ int, a *goquery.Selection) {
+		name := strings.TrimSpace(a.Text())
+		if name == "" {
+			return
+		}
+		if actorSymbolGender(a.NextFiltered("strong.symbol")) == "male" {
+			return
+		}
+		actors = append(actors, name)
+	})
+	return actors
+}
+
+func actorSymbolGender(symbol *goquery.Selection) string {
+	if symbol == nil || symbol.Length() == 0 {
+		return ""
+	}
+	className, _ := symbol.Attr("class")
+	className = strings.ToLower(className)
+	text := strings.TrimSpace(symbol.Text())
+	switch {
+	case strings.Contains(className, "female") || text == "♀":
+		return "female"
+	case strings.Contains(className, "male") || text == "♂":
+		return "male"
+	default:
+		return ""
+	}
 }
 
 func normalizeCodeText(s string) string {
@@ -282,6 +329,26 @@ func resolveURL(base, href string) string {
 		return href
 	}
 	return bu.ResolveReference(ru).String()
+}
+
+var (
+	reRatingValue = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*分`)
+	reRatingVotes = regexp.MustCompile(`由\s*([0-9][0-9,\s，]*)\s*人`)
+)
+
+func parseRatingText(s string) (float64, int) {
+	var rating float64
+	var votes int
+	if m := reRatingValue.FindStringSubmatch(s); len(m) == 2 {
+		rating, _ = strconv.ParseFloat(m[1], 64)
+	}
+	if m := reRatingVotes.FindStringSubmatch(s); len(m) == 2 {
+		voteText := strings.ReplaceAll(m[1], ",", "")
+		voteText = strings.ReplaceAll(voteText, "，", "")
+		voteText = strings.Join(strings.Fields(voteText), "")
+		votes, _ = strconv.Atoi(voteText)
+	}
+	return rating, votes
 }
 
 func normSpace(s string) string { return strings.Join(strings.Fields(s), " ") }

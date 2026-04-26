@@ -58,32 +58,38 @@ internal/provider/javdb/golden/*.json
 - 详情页入口：`https://www.javbus.com/<CODE>`
 - `Fetch` 会禁用自动重定向，直接读取 302 响应体。
 - `Location` 指向 `driver-verify` 且响应体呈现验证页时，`Fetch` 返回被拦截结果。
-- `Parse` 会先校验详情页中的识别码与传入 `Code` 一致；不一致视为解析失败。
+- `Parse` 会先校验详情页中的识别码与传入 `Code` 一致；缺失或不一致视为解析失败。
 - 标题来自页面 `h3`，若前缀已包含 `CODE`，会去掉这个前缀后再写入 `MovieMeta.Title`。
-- 发行日期来自 info 区块的”發行日期”/”发行日期”/”Release Date”/”発売日”字段。
-- 时长来自 info 区块的”長度”/”长度”/”Length”/”時長”/”时长”/”Duration”字段，提取首段连续数字作为分钟数。
-- 制片商优先取”發行商”/”发行商”/”Label”/”Publisher”，缺失时退回”製作商”/”制作商”/”Studio”/”Maker”/”Manufacturer”。
-- 系列来自 info 区块的”系列”字段。
+- `h3` 标题为空时，`Parse` 返回解析错误，以便上层进入降级链路。
+- 发行日期来自 info 区块的"發行日期"/"发行日期"/"Release Date"/"発売日"字段。
+- 时长来自 info 区块的"長度"/"长度"/"Length"/"時長"/"时长"/"Duration"字段，提取首段连续数字作为分钟数。
+- 导演来自 info 区块的"導演"/"导演"/"Director"字段。
+- 制片商（Studio）取"製作商"/"制作商"/"Studio"/"Maker"字段。
+- 发行商（Label）取"發行商"/"发行商"/"Label"/"Publisher"字段，独立存入 `MovieMeta.Label`。
+- 系列来自 info 区块的"系列"字段。
 - 演员从 `div.star-name a` 提取，去重。
-- 标签优先从 `meta[name=”keywords”]` 解析（剔除 CODE、studio、series 后剩余部分视为标签集合）；keywords 缺失时退回所有 href 包含 `/genre/` 的 `<a>` 文本。
+- 标签优先从 `meta[name="keywords"]` 解析（剔除 CODE、studio、label、series 后剩余部分视为标签集合）；keywords 缺失时退回所有 href 包含 `/genre/` 的 `<a>` 文本。
 - `Genres` 与 `Tags` 同时写入相同的标签列表。
 - `CoverURL` 优先取 `a.bigImage[href]`，其次取 `div.screencap img[src]`。
 - `FanartURL` 优先复用 `CoverURL`，若仍为空再尝试样品图 `#sample-waterfall a.sample-box[href]`。
 
 ## 6. JavDB 当前规则
 
-- 不能直接拼详情页，必须先访问 `search?q=<CODE>&f=all`。
+- 不能直接拼详情页，必须先访问 `<base>/search?q=<CODE>&f=all`；默认 base 为 `https://javdb.com`，也可通过 `javdb_base_url` / `Provider.BaseURL` 切换到可用域名。
 - 只接受搜索结果中 `strong == <CODE>` 的条目。
-- `Parse` 必须先确认存在 `nav.movie-panel-info`，再从详情字段的”番號”/”番号”/”ID”/”Code”提取页面识别码并与传入 `Code` 一致；缺失或不一致视为解析失败。
+- `Parse` 必须先确认存在 `nav.movie-panel-info`，再从详情字段的"番號"/"番号"/"ID"/"Code"提取页面识别码并与传入 `Code` 一致；缺失或不一致视为解析失败。
 - 登录页、年龄确认页或其它非详情页不得返回成功的 `MovieMeta`；缺失详情信息区或标题为空时必须返回解析错误，以便上层进入降级链路。
 - 标题优先取 `h2.title span.origin-title`，不存在时退回 `h2.title strong.current-title`。
 - 详情字段从 `nav.movie-panel-info .panel-block` 中按 `<strong>` 标签文本匹配：
-  - 发行日期：”日期”/”Date”
-  - 时长：”時長”/”时长”/”Length”/”Duration”，提取首段连续数字作为分钟数
-  - 制片商：”片商”/”Maker”/”Studio”/”Manufacturer”/”Label”
-  - 系列：”系列”/”Series”
-  - 演员：”演員”/”演员”/”Actor”/”Actors”/”Actress”/”Cast”，从 `span.value a` 提取，去重
-  - 标签：”類別”/”类别”/”Tag”/”Tags”/”Genre”/”Genres”/”Category”/”Categories”，从 `span.value a` 提取，去重
+  - 发行日期："日期"/"Date"
+  - 时长："時長"/"时长"/"Length"/"Duration"，提取首段连续数字作为分钟数
+  - 导演："導演"/"导演"/"Director"，从 `span.value a` 提取
+  - 制片商（Studio）："片商"/"Maker"/"Studio"/"Manufacturer"，从 `span.value a` 提取
+  - 发行商（Label）："發行"/"发行"/"Publisher"/"Label"，从 `span.value a` 提取，独立存入 `MovieMeta.Label`
+  - 系列："系列"/"Series"
+  - 演员："演員"/"演员"/"Actor"/"Actors"/"Actress"/"Cast"，从 `span.value a` 提取；若演员链接后紧邻的 `strong.symbol` 明确标记为 `male`/`♂` 则过滤，`female`/`♀` 与未标记性别的演员保留，最后去重
+  - 标签："類別"/"类别"/"Tag"/"Tags"/"Genre"/"Genres"/"Category"/"Categories"，从 `span.value a` 提取，去重
+  - 评分："評分"/"评分"/"Rating"/"Score"，从文本中解析评分值和投票数（格式如 `4.39分, 由1158人評價`）
 - `Genres` 与 `Tags` 同时写入相同的标签列表。
 - `CoverURL` 优先取 `.column-video-cover a[data-fancybox='gallery'][href]`，其次取 `.column-video-cover img.video-cover[src]`。
 - 当前实现直接把 `CoverURL` 复用为 `FanartURL`。

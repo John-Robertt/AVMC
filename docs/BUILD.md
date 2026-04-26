@@ -30,6 +30,7 @@
   - `windows/arm64`
 - 构建命令：`CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "dist/avmc_<VERSION>_<GOOS>_<GOARCH>[.exe]" ./cmd/avmc`
 - 产物：
+  - 裸二进制：`avmc_<VERSION>_<GOOS>_<GOARCH>[.exe]`
   - Linux / macOS：`avmc_<VERSION>_<GOOS>_<GOARCH>.tar.gz`
   - Windows：`avmc_<VERSION>_<GOOS>_<GOARCH>.zip`
   - 对应的 `avmc_<VERSION>_<GOOS>_<GOARCH>_SHA256SUMS.txt`
@@ -38,7 +39,7 @@
 
 - 依赖：`test`
 - 使用 buildx 推送多架构镜像到 GHCR。
-- 当前镜像名：`ghcr.io/john-robertt/avmc`
+- 镜像名由 `${GITHUB_REPOSITORY,,}` 动态计算；当前仓库对应 `ghcr.io/john-robertt/avmc`
 - 当前平台：`linux/amd64`、`linux/arm64`
 - 当前标签策略：
   - 始终推送：`sha-<short>`

@@ -36,9 +36,9 @@
 - `path`：扫描根目录；仅在 `avmc run` 无参时强制必填。
 - `provider`：默认首选 provider，允许值为 `javbus` 或 `javdb`。
 - `apply`：默认运行模式；CLI 可用 `--apply=false` 覆盖。
-- `concurrency`：按 `CODE` 并发的 worker 数。未配置时默认为 `4`；小于 `1` 会被截断到 `1`，大于 `32` 会被截断到 `32`。
+- `concurrency`：按 `CODE` 并发的 worker 数。未配置或配置为 `0` 时默认为 `4`；负数会被截断到 `1`，大于 `32` 会被截断到 `32`。
 - `javdb_base_url`：JavDB 的 base URL；必须是完整的 `http://` 或 `https://` URL，仅影响 JavDB 的搜索与详情页入口。
-- `proxy.url`：provider 页面抓取使用的 HTTP 代理入口；必须是合法 URL。
+- `proxy.url`：provider 页面抓取使用的 HTTP 代理入口；必须是带 scheme 与 host 的完整 `http://` 或 `https://` URL。
 - `image_proxy`：图片下载是否走 `proxy.url`；为 `true` 时要求 `proxy.url` 非空。
 - `exclude_dirs`：额外排除目录列表；相对路径按 `path` 解析，绝对路径按绝对路径处理。
 

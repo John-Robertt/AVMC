@@ -8,7 +8,7 @@
 - 输出：
   - `<path>/out/<CODE>/...`
   - `<path>/cache/providers/<provider>/<CODE>.{html,json}`
-  - `apply` 模式下的 `<path>/cache/report.json`
+  - `apply` 模式下由 CLI 层写入的 `<path>/cache/report.json`
 
 ## 2. 配置阶段
 
@@ -58,10 +58,10 @@
 步骤：
 
 1. 读取 `out/<CODE>/` 当前状态：
-   - `HasNFO`
-   - `HasPoster`
-   - `HasFanart`
-   - `ExistingNames`
+    - `HasNFO`
+    - `HasPoster`
+    - `HasFanart`
+    - `ExistingNames`
 2. 为该 `CODE` 的每个输入文件分配目标文件名：
    - 默认保留原文件名
    - 若目标目录已有同名文件，或同一批规划内已占用同名文件，则追加 `__2/__3...`
@@ -75,6 +75,7 @@
 
 - 缺 NFO 或缺 fanart 时，必须抓 provider。
 - 仅缺 poster 时，不触发 provider 抓取；`apply` 时会尝试从已存在的 `fanart.jpg` 生成 poster。
+- `<path>/out` 或 `<path>/out/<CODE>` 已存在但不是目录时，规划阶段失败为 `target_conflict`。
 - sidecar 名称存在但不是普通文件时，规划阶段失败为 `target_conflict`，并禁止移动视频。
 
 ## 7. 执行
@@ -122,6 +123,6 @@
 2. 可反序列化的 JSON cache 直接形成返回结果。
 3. 若 JSON cache 缺失或内容损坏，忽略它并继续走网络。
 4. 调用 `provider.FetchParseTrace`，按 `requested -> fallback` 顺序抓取与解析。
-5. `apply` 模式下，把最终成功 provider 的 HTML 和 JSON 写回其目录；`dry-run` 不写 cache。
+5. `apply` 模式下，best-effort 把最终成功 provider 的 HTML 和 JSON 写回其目录；写 provider cache 失败不会阻断当前 item，也不会写入 item 错误；`dry-run` 不写 cache。
 
 更细的 HTTP、代理、重试和 cache 规则见 [HTTP_CACHE.md](./HTTP_CACHE.md)。

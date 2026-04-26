@@ -97,11 +97,10 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 	runtimeS := findInfoValueAny(doc, []string{"長度", "长度", "Length", "時長", "时长", "Duration"})
 	runtimeM := firstInt(runtimeS)
 
-	// “發行商”更像对外的厂牌标识；缺失时再回退“製作商”。
-	studio := findInfoValueAny(doc, []string{"發行商", "发行商", "Label", "Publisher"})
-	if studio == "" {
-		studio = findInfoValueAny(doc, []string{"製作商", "制作商", "Studio", "Maker", "Manufacturer"})
-	}
+	director := findInfoValueAny(doc, []string{"導演", "导演", "Director"})
+
+	studio := findInfoValueAny(doc, []string{"製作商", "制作商", "Studio", "Maker"})
+	label := findInfoValueAny(doc, []string{"發行商", "发行商", "Label", "Publisher"})
 
 	series := findInfoValueAny(doc, []string{"系列", "Series"})
 
@@ -111,7 +110,7 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 	})
 	actors = normList(actors)
 
-	genres := parseKeywordTags(doc, code, studio, series)
+	genres := parseKeywordTags(doc, code, studio, label, series)
 	if len(genres) == 0 {
 		// 兜底：keywords 缺失时回退从 /genre/ 链接提取（可能包含噪音标签）。
 		doc.Find("a").Each(func(_ int, s *goquery.Selection) {
@@ -145,20 +144,20 @@ func (Provider) Parse(code domain.Code, html []byte, pageURL string) (domain.Mov
 	year := yearFromRelease(release)
 
 	meta := domain.MovieMeta{
-		Code:     code,
-		Title:    title,
-		Studio:   studio,
-		Series:   series,
-		Release:  release,
-		Year:     year,
-		RuntimeM: runtimeM,
-		Actors:   actors,
-		// JavBus 的「類別」更像标签/分类；为了兼容性同时写入 Genres 与 Tags。
-		Genres:   genres,
-		Tags:     genres,
-		Website:  strings.TrimSpace(pageURL),
-		CoverURL: coverURL,
-		// 若无单独背景图，则回退为 cover（避免 apply 因 fanart 缺失而失败）。
+		Code:      code,
+		Title:     title,
+		Director:  director,
+		Studio:    studio,
+		Label:     label,
+		Series:    series,
+		Release:   release,
+		Year:      year,
+		RuntimeM:  runtimeM,
+		Actors:    actors,
+		Genres:    genres,
+		Tags:      genres,
+		Website:   strings.TrimSpace(pageURL),
+		CoverURL:  coverURL,
 		FanartURL: fanartURL,
 	}
 	return meta, nil
@@ -287,7 +286,7 @@ func normList(in []string) []string {
 	return out
 }
 
-func parseKeywordTags(doc *goquery.Document, code domain.Code, studio, series string) []string {
+func parseKeywordTags(doc *goquery.Document, code domain.Code, studio, label, series string) []string {
 	if doc == nil {
 		return nil
 	}
@@ -300,9 +299,13 @@ func parseKeywordTags(doc *goquery.Document, code domain.Code, studio, series st
 		return nil
 	}
 
-	// keywords 通常形如：
-	// CODE,Studio,Series,Tag1,Tag2,...
-	// 我们不做“聪明猜测”，只剔除已知的 code/studio/series，剩下的视为标签集合。
+	exclude := make(map[string]struct{}, 4)
+	for _, s := range []string{studio, label, series} {
+		if s != "" {
+			exclude[s] = struct{}{}
+		}
+	}
+
 	out := make([]string, 0, 16)
 	seen := make(map[string]struct{}, 32)
 	for _, p := range strings.Split(content, ",") {
@@ -313,10 +316,7 @@ func parseKeywordTags(doc *goquery.Document, code domain.Code, studio, series st
 		if strings.EqualFold(s, string(code)) {
 			continue
 		}
-		if studio != "" && s == studio {
-			continue
-		}
-		if series != "" && s == series {
+		if _, ok := exclude[s]; ok {
 			continue
 		}
 		if _, ok := seen[s]; ok {

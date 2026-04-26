@@ -23,6 +23,10 @@
 当前事实：`internal/app/run` 不是“只依赖抽象接口”的纯编排层，它直接依赖下列具体包：
 
 - `internal/scan`
+- `internal/app`
+- `internal/app/planner`
+- `internal/config`
+- `internal/domain`
 - `internal/provider`
 - `internal/infra/cache`
 - `internal/infra/httpx`

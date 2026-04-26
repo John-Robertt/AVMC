@@ -201,8 +201,8 @@ func merge(absPath string, cli CLIArgs, fc FileConfig, cfgPath string) (Effectiv
 		proxyURL = strings.TrimSpace(fc.Proxy.URL)
 	}
 	if proxyURL != "" {
-		if _, err := url.Parse(proxyURL); err != nil {
-			return EffectiveConfig{}, &Error{Code: ErrCodeInvalid, Path: cfgPath, Err: fmt.Errorf("proxy.url 无效：%w", err)}
+		if err := validateHTTPURL("proxy.url", proxyURL); err != nil {
+			return EffectiveConfig{}, &Error{Code: ErrCodeInvalid, Path: cfgPath, Err: err}
 		}
 	}
 	if fc.ImageProxy && proxyURL == "" {
@@ -211,12 +211,8 @@ func merge(absPath string, cli CLIArgs, fc FileConfig, cfgPath string) (Effectiv
 
 	javdbBaseURL := strings.TrimSpace(fc.JavDBBaseURL)
 	if javdbBaseURL != "" {
-		u, err := url.Parse(javdbBaseURL)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return EffectiveConfig{}, &Error{Code: ErrCodeInvalid, Path: cfgPath, Err: fmt.Errorf("javdb_base_url 无效：%q", javdbBaseURL)}
-		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return EffectiveConfig{}, &Error{Code: ErrCodeInvalid, Path: cfgPath, Err: fmt.Errorf("javdb_base_url 必须是 http/https：%q", javdbBaseURL)}
+		if err := validateHTTPURL("javdb_base_url", javdbBaseURL); err != nil {
+			return EffectiveConfig{}, &Error{Code: ErrCodeInvalid, Path: cfgPath, Err: err}
 		}
 	}
 
@@ -241,6 +237,17 @@ func validateProvider(p string) error {
 	default:
 		return fmt.Errorf("provider 只能是 javbus 或 javdb，实际是 %q", p)
 	}
+}
+
+func validateHTTPURL(field, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("%s 无效：%q", field, rawURL)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%s 必须是 http/https：%q", field, rawURL)
+	}
+	return nil
 }
 
 // absCleanFrom 以 base 为基准，把 p 变为 clean + absolute。

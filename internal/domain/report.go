@@ -130,9 +130,23 @@ func (r *RunReport) Finalize() {
 	r.Summary = s
 }
 
-// MarshalJSON 仅用于集中约束输出的稳定性（避免未来不小心引入非确定字段）。
-// 当前只是透传 encoding/json 的默认行为。
+// MarshalJSON 集中约束输出稳定性：对外数组字段即使为空也输出 []，不输出 null。
 func (r RunReport) MarshalJSON() ([]byte, error) {
 	type Alias RunReport
-	return json.Marshal(Alias(r))
+	rr := r
+	if rr.Items == nil {
+		rr.Items = []ItemResult{}
+	}
+	for i := range rr.Items {
+		if rr.Items[i].Attempts == nil {
+			rr.Items[i].Attempts = []ProviderAttempt{}
+		}
+		if rr.Items[i].Candidates == nil {
+			rr.Items[i].Candidates = []string{}
+		}
+		if rr.Items[i].Files == nil {
+			rr.Items[i].Files = []FileResult{}
+		}
+	}
+	return json.Marshal(Alias(rr))
 }
